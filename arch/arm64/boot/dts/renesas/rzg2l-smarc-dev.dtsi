@@ -141,8 +141,6 @@
 		serial0 = &scif0;
 		serial1 = &scif1;
 		serial2 = &scif2;
-		mmc0 = &sdhi0;
-		mmc1 = &sdhi1;
 #if (CAN_SUPPORT)
 		can0 = &canfd;
 		can1 = &canfd;
@@ -151,6 +149,8 @@
 #if (CN12)
 		ethernet1 = &eth1;
 #endif
+		mmc0 = &sdhi0;
+		mmc1 = &sdhi1;
 	};
 
 	chosen {
@@ -337,7 +337,7 @@
 		};
 
 		sd0_ctrl {
-			pins = "SD0_CLK", "SD0_CMD", "SD0_RST_N";
+			pins = "SD0_CLK", "SD0_CMD", "SD0_RST#";
 			power-source = <1800>;
 		};
 	};
@@ -615,6 +615,25 @@
 #else
 			<RZG2L_PORT_PINMUX(44, 3, 4)>; /* MTIOC3D */
 #endif
+#endif
+	};
+#endif
+
+	/* POE3 input capture can be tested via Mainboard CN4 in 2 cases:
+	 * 1. Use CAN subboard. Test POE0#(CP7) and POE10#(CP11).
+	 * 2. Use CN-G PMOD subboard. Test POE0#(TH22), POE4#(TH18),
+	 *    POE8#(TH23), and POE10#(TH19).
+	 */
+#if POE3_SUPPORT
+	poe3_pins: poe3 {
+#if CAN_SUPPORT
+		pinmux = <RZG2L_PORT_PINMUX(12, 0, 3)>, /* POE0# */
+			 <RZG2L_PORT_PINMUX(13, 1, 3)>; /* POE10# */
+#elif !DISP_PARALLEL
+		pinmux = <RZG2L_PORT_PINMUX(12, 0, 3)>, /* POE0# */
+			 <RZG2L_PORT_PINMUX(12, 1, 3)>, /* POE4# */
+			 <RZG2L_PORT_PINMUX(13, 0, 3)>, /* POE8# */
+			 <RZG2L_PORT_PINMUX(13, 1, 3)>; /* POE10# */
 #endif
 	};
 #endif
@@ -1092,15 +1111,9 @@
 	status = "okay";
 };
 
-#if (MTU3_PWM_SUPPORT && MTU3_PWM_COMPLEMENTARY_SELECT && POE3_SUPPORT)
-&poe3 {
+&phyrst {
 	status = "okay";
-
-	mtu3_ch34 {
-		mtu3_outputs = <0>; /* MTIOC3B-MTIOC3D */
-	};
 };
-#endif
 
 &ohci0 {
 	dr_mode = "otg";
@@ -1110,6 +1123,26 @@
 &ohci1 {
 	status = "okay";
 };
+
+#if (MTU3_PWM_SUPPORT && MTU3_PWM_COMPLEMENTARY_SELECT && POE3_SUPPORT)
+&poe3 {
+#if (CAN_SUPPORT || !DISP_PARALLEL)
+	pinctrl-0 = <&poe3_pins>;
+	pinctrl-names = "default";
+	poe3_pins_mode = <0 0>, <4 0>, <8 0>, <10 0>;
+#endif
+	status = "okay";
+
+	mtu3_ch34 {
+#if CAN_SUPPORT
+		addition_poe3_inputs = <0>, <10>;
+#elif !DISP_PARALLEL
+		addition_poe3_inputs = <0>, <4>, <8>, <10>;
+#endif
+		mtu3_outputs = <0>; /* MTIOC3B-MTIOC3D */
+	};
+};
+#endif
 
 &hsusb {
 	dr_mode = "otg";
@@ -1199,4 +1232,3 @@
 		};
 	};
 };
-

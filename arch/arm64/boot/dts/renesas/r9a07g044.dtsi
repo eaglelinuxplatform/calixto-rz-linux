@@ -8,6 +8,9 @@
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/clock/r9a07g044-cpg.h>
 
+/* This macro is used to enable setting of all MTU3 interrupts. */
+#define MTU3_ALL_IRQ_EN			0
+
 / {
 	compatible = "renesas,r9a07g044";
 	#address-cells = <2>;
@@ -40,6 +43,13 @@
 		#clock-cells = <0>;
 		/* This value must be overridden by the board */
 		clock-frequency = <0>;
+	};
+
+	firmware {
+		optee {
+			compatible = "linaro,optee-tz";
+			method = "smc";
+		};
 	};
 
 	cluster0_opp: opp-table-0 {
@@ -161,19 +171,19 @@
 		method = "smc";
 	};
 
-	firmware {
-		optee {
-			compatible = "linaro,optee-tz";
-			method = "smc";
-		};
-	};
-
 	soc: soc {
 		compatible = "simple-bus";
 		interrupt-parent = <&gic>;
 		#address-cells = <2>;
 		#size-cells = <2>;
 		ranges;
+
+		edac: edac@11410000 {
+			compatible = "renesas,r9a07g044-edac";
+			reg = <0 0x11410000 0 0x10000>;
+			interrupts = <GIC_SPI 40 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "ecc_irq";
+		};
 
 		poe3: poe3@10049800 {
 			compatible =	"renesas,rz-poe3",
@@ -307,6 +317,8 @@
 			interrupt-names = "error", "rx", "tx";
 			clocks = <&cpg CPG_MOD R9A07G044_RSPI0_CLKB>;
 			resets = <&cpg R9A07G044_RSPI0_RST>;
+			dmas = <&dmac 0x2e95>, <&dmac 0x2e96>;
+			dma-names = "tx", "rx";
 			power-domains = <&cpg>;
 			num-cs = <1>;
 			#address-cells = <1>;
@@ -323,6 +335,8 @@
 			interrupt-names = "error", "rx", "tx";
 			clocks = <&cpg CPG_MOD R9A07G044_RSPI1_CLKB>;
 			resets = <&cpg R9A07G044_RSPI1_RST>;
+			dmas = <&dmac 0x2e99>, <&dmac 0x2e9a>;
+			dma-names = "tx", "rx";
 			power-domains = <&cpg>;
 			num-cs = <1>;
 			#address-cells = <1>;
@@ -339,6 +353,8 @@
 			interrupt-names = "error", "rx", "tx";
 			clocks = <&cpg CPG_MOD R9A07G044_RSPI2_CLKB>;
 			resets = <&cpg R9A07G044_RSPI2_RST>;
+			dmas = <&dmac 0x2e9d>, <&dmac 0x2e9e>;
+			dma-names = "tx", "rx";
 			power-domains = <&cpg>;
 			num-cs = <1>;
 			#address-cells = <1>;
@@ -359,6 +375,8 @@
 					  "bri", "dri", "tei";
 			clocks = <&cpg CPG_MOD R9A07G044_SCIF0_CLK_PCK>;
 			clock-names = "fck";
+			dmas = <&dmac 0x4e79>, <&dmac 0x4e7a>;
+			dma-names = "tx", "rx";
 			power-domains = <&cpg>;
 			resets = <&cpg R9A07G044_SCIF0_RST_SYSTEM_N>;
 			status = "disabled";
@@ -377,6 +395,8 @@
 					  "bri", "dri", "tei";
 			clocks = <&cpg CPG_MOD R9A07G044_SCIF1_CLK_PCK>;
 			clock-names = "fck";
+			dmas = <&dmac 0x4e7d>, <&dmac 0x4e7e>;
+			dma-names = "tx", "rx";
 			power-domains = <&cpg>;
 			resets = <&cpg R9A07G044_SCIF1_RST_SYSTEM_N>;
 			status = "disabled";
@@ -395,6 +415,8 @@
 					  "bri", "dri", "tei";
 			clocks = <&cpg CPG_MOD R9A07G044_SCIF2_CLK_PCK>;
 			clock-names = "fck";
+			dmas = <&dmac 0x4e81>, <&dmac 0x4e82>;
+			dma-names = "tx", "rx";
 			power-domains = <&cpg>;
 			resets = <&cpg R9A07G044_SCIF2_RST_SYSTEM_N>;
 			status = "disabled";
@@ -413,6 +435,8 @@
 					  "bri", "dri", "tei";
 			clocks = <&cpg CPG_MOD R9A07G044_SCIF3_CLK_PCK>;
 			clock-names = "fck";
+			dmas = <&dmac 0x4e85>, <&dmac 0x4e86>;
+			dma-names = "tx", "rx";
 			power-domains = <&cpg>;
 			resets = <&cpg R9A07G044_SCIF3_RST_SYSTEM_N>;
 			status = "disabled";
@@ -431,6 +455,8 @@
 					  "bri", "dri", "tei";
 			clocks = <&cpg CPG_MOD R9A07G044_SCIF4_CLK_PCK>;
 			clock-names = "fck";
+			dmas = <&dmac 0x4e89>, <&dmac 0x4e8a>;
+			dma-names = "tx", "rx";
 			power-domains = <&cpg>;
 			resets = <&cpg R9A07G044_SCIF4_RST_SYSTEM_N>;
 			status = "disabled";
@@ -440,8 +466,8 @@
 			compatible = "renesas,r9a07g044-sci", "renesas,sci";
 			reg = <0 0x1004d000 0 0x400>;
 			interrupts = <GIC_SPI 405 IRQ_TYPE_LEVEL_HIGH>,
-				     <GIC_SPI 406 IRQ_TYPE_LEVEL_HIGH>,
-				     <GIC_SPI 407 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 406 IRQ_TYPE_EDGE_RISING>,
+				     <GIC_SPI 407 IRQ_TYPE_EDGE_RISING>,
 				     <GIC_SPI 408 IRQ_TYPE_LEVEL_HIGH>;
 			interrupt-names = "eri", "rxi", "txi", "tei";
 			clocks = <&cpg CPG_MOD R9A07G044_SCI0_CLKP>;
@@ -455,8 +481,8 @@
 			compatible = "renesas,r9a07g044-sci", "renesas,sci";
 			reg = <0 0x1004d400 0 0x400>;
 			interrupts = <GIC_SPI 409 IRQ_TYPE_LEVEL_HIGH>,
-				     <GIC_SPI 410 IRQ_TYPE_LEVEL_HIGH>,
-				     <GIC_SPI 411 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 410 IRQ_TYPE_EDGE_RISING>,
+				     <GIC_SPI 411 IRQ_TYPE_EDGE_RISING>,
 				     <GIC_SPI 412 IRQ_TYPE_LEVEL_HIGH>;
 			interrupt-names = "eri", "rxi", "txi", "tei";
 			clocks = <&cpg CPG_MOD R9A07G044_SCI1_CLKP>;
@@ -835,9 +861,11 @@
 					  "ch12", "ch13", "ch14", "ch15";
 			clocks = <&cpg CPG_MOD R9A07G044_DMAC_ACLK>,
 				 <&cpg CPG_MOD R9A07G044_DMAC_PCLK>;
+			clock-names = "main", "register";
 			power-domains = <&cpg>;
 			resets = <&cpg R9A07G044_DMAC_ARESETN>,
 				 <&cpg R9A07G044_DMAC_RST_ASYNC>;
+			reset-names = "arst", "rst_async";
 			#dma-cells = <1>;
 			dma-channels = <16>;
 		};
@@ -873,7 +901,7 @@
 			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_LOW>;
 		};
 
-		sdhi0: mmc@11c00000  {
+		sdhi0: mmc@11c00000 {
 			compatible = "renesas,sdhi-r9a07g044",
 				     "renesas,rcar-gen3-sdhi";
 			reg = <0x0 0x11c00000 0 0x10000>;
@@ -1042,7 +1070,7 @@
 
 		hsusb: usb@11c60000 {
 			compatible = "renesas,usbhs-r9a07g044",
-				     "renesas,rza2-usbhs";
+				     "renesas,rzg2l-usbhs";
 			reg = <0 0x11c60000 0 0x10000>;
 			interrupts = <GIC_SPI 100 IRQ_TYPE_EDGE_RISING>,
 				     <GIC_SPI 101 IRQ_TYPE_LEVEL_HIGH>,
@@ -1071,6 +1099,7 @@
 			interrupt-names = "wdt", "perrout";
 			resets = <&cpg R9A07G044_WDT0_PRESETN>;
 			power-domains = <&cpg>;
+			channel,id = <0>;
 			status = "disabled";
 		};
 
@@ -1086,6 +1115,7 @@
 			interrupt-names = "wdt", "perrout";
 			resets = <&cpg R9A07G044_WDT1_PRESETN>;
 			power-domains = <&cpg>;
+			channel,id = <1>;
 			status = "disabled";
 		};
 
@@ -1101,6 +1131,7 @@
 			interrupt-names = "wdt", "perrout";
 			resets = <&cpg R9A07G044_WDT2_PRESETN>;
 			power-domains = <&cpg>;
+			channel,id = <2>;
 			status = "disabled";
 		};
 
@@ -1129,65 +1160,68 @@
 		mtu3: timer@10001200 {
 			compatible = "renesas,mtu3";
 			reg = <0 0x10001200 0 0xB00>;
+#if MTU3_ALL_IRQ_EN
 			interrupts =
-				<GIC_SPI 170 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 171 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 172 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 173 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 174 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 175 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 176 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 177 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 178 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 179 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 180 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 181 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 182 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 183 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 184 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 185 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 186 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 187 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 188 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 189 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 190 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 191 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 192 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 193 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 194 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 195 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 197 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 198 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 199 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 200 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 201 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 202 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 203 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 204 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 205 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 206 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 207 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 208 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 209 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 210 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 212 IRQ_TYPE_LEVEL_HIGH>,
-				<GIC_SPI 213 IRQ_TYPE_LEVEL_HIGH>;
-			interrupt-names = "tgi0a", "tci0b", "tgi0c", "tgi0d",
-					  "tgi0v", "tgi0e", "tgi0f",
-					  "tgi1a", "tgi1b", "tgi1v", "tgi1u",
-					  "tgi2a", "tgi2b", "tgi2v", "tgi2u",
-					  "tgi3a", "tgi3b", "tgi3c", "tgi3d",
-					  "tgi3v",
-					  "tgi4a", "tgi4b", "tgi4c", "tgi4d",
-					  "tgi4v",
-					  "tgi5v", "tgi5u", "tgi5w",
-					  "tgi6a", "tgi6b", "tgi6c", "tgi6d",
-					  "tgi6v",
-					  "tgi7a", "tgi7b", "tgi7c", "tgi7d",
-					  "tgi7v",
-					  "tgi8a", "tgi8b", "tgi8c", "tgi8d",
-					  "tgi8v", "tgi8u";
+				<GIC_SPI 170 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 171 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 172 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 173 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 174 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 175 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 176 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 177 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 178 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 179 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 180 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 181 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 182 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 183 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 184 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 185 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 186 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 187 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 188 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 189 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 190 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 191 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 192 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 193 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 194 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 195 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 196 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 197 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 198 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 199 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 200 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 201 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 202 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 203 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 204 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 205 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 206 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 207 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 208 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 209 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 210 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 211 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 212 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 213 IRQ_TYPE_EDGE_RISING>;
+			interrupt-names = "tgia0", "tgib0", "tgic0", "tgid0",
+					  "tciv0", "tgie0", "tgif0",
+					  "tgia1", "tgib1", "tciv1", "tciu1",
+					  "tgia2", "tgib2", "tciv2", "tciu2",
+					  "tgia3", "tgib3", "tgic3", "tgid3",
+					  "tciv3",
+					  "tgia4", "tgib4", "tgic4", "tgid4",
+					  "tciv4",
+					  "tgiu5", "tgiv5", "tgiw5",
+					  "tgia6", "tgib6", "tgic6", "tgid6",
+					  "tciv6",
+					  "tgia7", "tgib7", "tgic7", "tgid7",
+					  "tciv7",
+					  "tgia8", "tgib8", "tgic8", "tgid8",
+					  "tciv8", "tciu8";
+#endif
 			clocks = <&cpg CPG_MOD R9A07G044_MTU_X_MCK_MTU3>;
 			clock-names = "fck";
 			power-domains = <&cpg>;
@@ -1554,6 +1588,14 @@
 	};
 
 	thermal-zones {
+		emergency {
+			polling-delay = <1000>;
+			on-temperature = <110000>;
+			off-temperature = <95000>;
+			target_cpus =   <&cpu1>;
+			status = "disabled";
+		};
+
 		cpu-thermal {
 			polling-delay-passive = <250>;
 			polling-delay = <1000>;

@@ -128,6 +128,7 @@ dtb-$(CONFIG_ARCH_BCM_5301X) += \
 	bcm47094-luxul-xwr-3150-v1.dtb \
 	bcm47094-netgear-r8500.dtb \
 	bcm47094-phicomm-k3.dtb \
+	bcm53015-meraki-mr26.dtb \
 	bcm53016-meraki-mr32.dtb \
 	bcm94708.dtb \
 	bcm94709.dtb \
@@ -947,16 +948,25 @@ dtb-$(CONFIG_ARCH_RENESAS) += \
 	r8a73a4-ape6evm.dtb \
 	r8a7740-armadillo800eva.dtb \
 	r8a7742-iwg21d-q7.dtb \
+	r8a7742-iwg21d-q7-rev2.dtb \
 	r8a7742-iwg21d-q7-dbcm-ca.dtb \
+	r8a7742-iwg21d-q7-dbcm-ca-rev2.dtb \
 	r8a7743-iwg20d-q7.dtb \
+	r8a7743-iwg20d-q7-rev2.dtb \
 	r8a7743-iwg20d-q7-dbcm-ca.dtb \
+	r8a7743-iwg20d-q7-dbcm-ca-rev2.dtb \
 	r8a7743-sk-rzg1m.dtb \
 	r8a7744-iwg20d-q7.dtb \
 	r8a7744-iwg20d-q7-dbcm-ca.dtb \
+	r8a7744-iwg20d-q7-rev2.dtb \
+	r8a7744-iwg20d-q7-dbcm-ca-rev2.dtb \
 	r8a7745-iwg22d-sodimm.dtb \
+	r8a7745-iwg22d-sodimm-rev3.dtb \
 	r8a7745-iwg22d-sodimm-dbhd-ca.dtb \
+	r8a7745-iwg22d-sodimm-dbhd-ca-rev3.dtb \
 	r8a7745-sk-rzg1e.dtb \
 	r8a77470-iwg23s-sbc.dtb \
+	r8a77470-iwg23s-sbc-rev2.dtb \
 	r8a7778-bockw.dtb \
 	r8a7779-marzen.dtb \
 	r8a7790-lager.dtb \

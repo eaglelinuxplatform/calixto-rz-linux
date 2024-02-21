@@ -76,7 +76,6 @@ struct sd_hw_data {
  * @num_mod_clks: Number of Module Clocks in clks[]
  * @num_resets: Number of Module Resets in info->resets[]
  * @last_dt_core_clk: ID of the last Core Clock exported to DT
- * @notifiers: Notifier chain to save/restore clock state for system resume
  * @info: Pointer to platform data
  */
 struct rzg2l_cpg_priv {
@@ -91,7 +90,6 @@ struct rzg2l_cpg_priv {
 	unsigned int num_resets;
 	unsigned int last_dt_core_clk;
 
-	struct raw_notifier_head notifiers;
 	const struct rzg2l_cpg_info *info;
 };
 
@@ -162,7 +160,7 @@ unsigned int rzg2l_cpg_2div_clk_get_div(unsigned int val,
 		if (val == t[i].val)
 			return t[i].div;
 
-	/*return div as 1 if failed*/
+	/* Return div as 1 if failed */
 	return 1;
 }
 
@@ -331,7 +329,7 @@ rzg2l_cpg_mux_clk_register(const struct cpg_core_clk *core,
 static int rzg2l_cpg_sd_clk_mux_determine_rate(struct clk_hw *hw,
 					       struct clk_rate_request *req)
 {
-	return clk_mux_determine_rate_flags(hw, req, 0);
+	return clk_mux_determine_rate_flags(hw, req, CLK_MUX_ROUND_CLOSEST);
 }
 
 static int rzg2l_cpg_sd_clk_mux_set_parent(struct clk_hw *hw, u8 index)
@@ -459,7 +457,7 @@ static unsigned long rzg2l_cpg_pll_clk_recalc_rate(struct clk_hw *hw,
 	val1 = readl(priv->base + GET_REG_SAMPLL_CLK1(pll_clk->conf));
 	val2 = readl(priv->base + GET_REG_SAMPLL_CLK2(pll_clk->conf));
 	mult = MDIV(val1) + KDIV(val1) / 65536;
-	div = PDIV(val1) * (1 << SDIV(val2));
+	div = PDIV(val1) << SDIV(val2);
 
 	return DIV_ROUND_CLOSEST_ULL((u64)parent_rate * mult, div);
 }
@@ -640,6 +638,21 @@ struct mstp_clock {
 
 #define to_mod_clock(_hw) container_of(_hw, struct mstp_clock, hw)
 
+unsigned int rzg2l_cpg_wdt_ovf_sysrst(struct clk_hw *hw, int channel)
+{
+	struct mstp_clock *clock = to_mod_clock(hw);
+	struct rzg2l_cpg_priv *priv = clock->priv;
+	unsigned int val;
+
+	/* Get the WDTOVF of specific WDT channel */
+	val = readl(priv->base + CPG_WDTOVF_RST) & BIT(channel);
+
+	/* Clear WDTOVF flag after reading */
+	writel(WDTOVF_WEN(val) | val, priv->base + CPG_WDTOVF_RST);
+
+	return !!val;
+}
+
 static int rzg2l_mod_clock_endisable(struct clk_hw *hw, bool enable)
 {
 	struct mstp_clock *clock = to_mod_clock(hw);
@@ -668,7 +681,6 @@ static int rzg2l_mod_clock_endisable(struct clk_hw *hw, bool enable)
 		writel(value, priv->base + CLK_ON_R(reg));
 		if (clock->mstop)
 			writel(mstop_val, priv->base + MSTOP_OFF(clock->mstop));
-
 	} else {
 		value = bitmask << 16;
 		mstop_val = MSTOP_BIT(clock->mstop) << 16
@@ -682,6 +694,9 @@ static int rzg2l_mod_clock_endisable(struct clk_hw *hw, bool enable)
 	spin_unlock_irqrestore(&priv->rmw_lock, flags);
 
 	if (!enable)
+		return 0;
+
+	if (!priv->info->has_clk_mon_regs)
 		return 0;
 
 	for (i = 1000; i > 0; --i) {
@@ -755,16 +770,18 @@ static int rzg2l_mod_clock_is_enabled(struct clk_hw *hw)
 	if (clock->sibling)
 		return clock->enabled;
 
-	value = readl(priv->base + CLK_MON_R(clock->off));
+	if (priv->info->has_clk_mon_regs)
+		value = readl(priv->base + CLK_MON_R(clock->off));
+	else
+		value = readl(priv->base + clock->off);
 
 	if (clock->mstop) {
 		mstop_val = readl(priv->base + MSTOP_OFF(clock->mstop));
 		mstop_val &= MSTOP_BIT(clock->mstop);
 
-		if ((mstop_val == 0) && ((value & bitmask) == 0))
-		{
+		if ((mstop_val == 0) && ((value & bitmask) == 0)) {
 			mstop_val = MSTOP_BIT(clock->mstop) << 16
-					| MSTOP_BIT(clock->mstop);
+				  | MSTOP_BIT(clock->mstop);
 
 			writel(mstop_val, priv->base + MSTOP_OFF(clock->mstop));
 		}
@@ -944,8 +961,16 @@ static int rzg2l_cpg_status(struct reset_controller_dev *rcdev,
 	const struct rzg2l_cpg_info *info = priv->info;
 	unsigned int reg = info->resets[id].off;
 	u32 bitmask = BIT(info->resets[id].bit);
+	s8 monbit = info->resets[id].monbit;
 
-	return !!(readl(priv->base + CLK_MRST_R(reg)) & bitmask);
+	if (info->has_clk_mon_regs) {
+		return !!(readl(priv->base + CLK_MRST_R(reg)) & bitmask);
+	} else if (monbit >= 0) {
+		u32 monbitmask = BIT(monbit);
+
+		return !!(readl(priv->base + CPG_RST_MON) & monbitmask);
+	}
+	return -ENOTSUPP;
 }
 
 static const struct reset_control_ops rzg2l_cpg_reset_ops = {
@@ -1148,16 +1173,22 @@ static int __init rzg2l_cpg_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id rzg2l_cpg_match[] = {
-#ifdef CONFIG_CLK_R9A07G044
-	{
-		.compatible = "renesas,r9a07g044-cpg",
-		.data = &r9a07g044_cpg_info,
-	},
-#endif
 #ifdef CONFIG_CLK_R9A07G043
 	{
 		.compatible = "renesas,r9a07g043-cpg",
 		.data = &r9a07g043_cpg_info,
+	},
+#endif
+#ifdef CONFIG_CLK_R9A07G043F
+	{
+		.compatible = "renesas,r9a07g043f-cpg",
+		.data = &r9a07g043f_cpg_info,
+	},
+#endif
+#ifdef CONFIG_CLK_R9A07G044
+	{
+		.compatible = "renesas,r9a07g044-cpg",
+		.data = &r9a07g044_cpg_info,
 	},
 #endif
 #ifdef CONFIG_CLK_R9A07G054
@@ -1165,6 +1196,16 @@ static const struct of_device_id rzg2l_cpg_match[] = {
 		.compatible = "renesas,r9a07g054-cpg",
 		.data = &r9a07g054_cpg_info,
 	},
+#endif
+#ifdef CONFIG_CLK_R9A09G011
+	{
+		.compatible = "renesas,r9a09g011-cpg",
+		.data = &r9a09g011_cpg_info,
+	},
+        {
+                .compatible = "renesas,r9a09g055-cpg",
+                .data = &r9a09g011_cpg_info,
+        },
 #endif
 	{ /* sentinel */ }
 };

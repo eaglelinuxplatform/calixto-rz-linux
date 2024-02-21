@@ -55,6 +55,21 @@
 
 /* RSPI on RZ only */
 #define RSPI_SPBFCR		0x20	/* Buffer Control Register */
+/* Transmit Buffer Data Triggering Number */
+#define RSPI_SPBFCR_TXTRG_7	(0 << 4)
+#define RSPI_SPBFCR_TXTRG_6	(1 << 4)
+#define RSPI_SPBFCR_TXTRG_4	(2 << 4)
+#define RSPI_SPBFCR_TXTRG_0	(3 << 4)
+/* Receive Buffer Data Triggering Number */
+#define RSPI_SPBFCR_RXTRG_1	(0)
+#define RSPI_SPBFCR_RXTRG_2	(1)
+#define RSPI_SPBFCR_RXTRG_4	(2)
+#define RSPI_SPBFCR_RXTRG_8	(3)
+#define RSPI_SPBFCR_RXTRG_16	(4)
+#define RSPI_SPBFCR_RXTRG_24	(5)
+#define RSPI_SPBFCR_RXTRG_32	(6)
+#define RSPI_SPBFCR_RXTRG_5	(7)
+
 #define RSPI_SPBFDR		0x22	/* Buffer Data Count Setting Register */
 
 /* QSPI only */
@@ -191,6 +206,7 @@ struct rspi_data {
 	u8 spsr;
 	u8 sppcr;
 	int rx_irq, tx_irq;
+	int bits_per_word;
 	const struct spi_ops *ops;
 
 	unsigned dma_callbacked:1;
@@ -222,20 +238,29 @@ static u16 rspi_read16(const struct rspi_data *rspi, u16 offset)
 	return ioread16(rspi->addr + offset);
 }
 
+static u32 rspi_read32(const struct rspi_data *rspi, u16 offset)
+{
+	return ioread32(rspi->addr + offset);
+}
+
 static void rspi_write_data(const struct rspi_data *rspi, u16 data)
 {
-	if (rspi->byte_access)
+	if (rspi->bits_per_word == 8)
 		rspi_write8(rspi, data, RSPI_SPDR);
-	else /* 16 bit */
+	else if (rspi->bits_per_word == 16)
 		rspi_write16(rspi, data, RSPI_SPDR);
+	else
+		rspi_write32(rspi, data, RSPI_SPDR);
 }
 
 static u16 rspi_read_data(const struct rspi_data *rspi)
 {
-	if (rspi->byte_access)
+	if (rspi->bits_per_word == 8)
 		return rspi_read8(rspi, RSPI_SPDR);
-	else /* 16 bit */
+	else if (rspi->bits_per_word == 16)
 		return rspi_read16(rspi, RSPI_SPDR);
+	else
+		return rspi_read32(rspi, RSPI_SPDR);
 }
 
 /* optional functions */
@@ -249,7 +274,6 @@ struct spi_ops {
 	u16 flags;
 	u16 fifo_size;
 	u8 num_hw_ss;
-	bool need_dmar_clr;
 };
 
 static void rspi_set_rate(struct rspi_data *rspi)
@@ -296,7 +320,7 @@ static int rspi_set_config_register(struct rspi_data *rspi, int access_size)
 
 	/* Resets sequencer */
 	rspi_write8(rspi, 0, RSPI_SPSCR);
-	rspi->spcmd |= SPCMD_SPB_8_TO_16(access_size);
+	rspi->spcmd |= SPCMD_SPB_8_TO_16(rspi->bits_per_word);
 	rspi_write16(rspi, rspi->spcmd, RSPI_SPCMD0);
 
 	/* Sets RSPI mode */
@@ -317,8 +341,12 @@ static int rspi_rz_set_config_register(struct rspi_data *rspi, int access_size)
 	rspi_set_rate(rspi);
 
 	/* Disable dummy transmission, set byte access */
-	rspi_write8(rspi, SPDCR_SPLBYTE, RSPI_SPDCR);
-	rspi->byte_access = 1;
+	if (rspi->bits_per_word == 8)
+		rspi_write8(rspi, SPDCR_SPLBYTE, RSPI_SPDCR);
+	else if (rspi->bits_per_word == 16)
+		rspi_write8(rspi, SPDCR_SPLWORD, RSPI_SPDCR);
+	else
+		rspi_write8(rspi, SPDCR_SPLLWORD, RSPI_SPDCR);
 
 	/* Sets RSPCK, SSL, next-access delay value */
 	rspi_write8(rspi, 0x00, RSPI_SPCKD);
@@ -327,7 +355,11 @@ static int rspi_rz_set_config_register(struct rspi_data *rspi, int access_size)
 
 	/* Resets sequencer */
 	rspi_write8(rspi, 0, RSPI_SPSCR);
-	rspi->spcmd |= SPCMD_SPB_8_TO_16(access_size);
+	rspi->spcmd &= ~SPCMD_SPB_MASK;
+	if (rspi->bits_per_word == 8 || rspi->bits_per_word == 16)
+		rspi->spcmd |= SPCMD_SPB_8_TO_16(rspi->bits_per_word);
+	else
+		rspi->spcmd |= SPCMD_SPB_32BIT;
 	rspi_write16(rspi, rspi->spcmd, RSPI_SPCMD0);
 
 	/* Sets RSPI mode */
@@ -375,9 +407,9 @@ static int qspi_set_config_register(struct rspi_data *rspi, int access_size)
 	rspi_write8(rspi, 0x00, RSPI_SPND);
 
 	/* Data Length Setting */
-	if (access_size == 8)
+	if (rspi->bits_per_word == 8)
 		rspi->spcmd |= SPCMD_SPB_8BIT;
-	else if (access_size == 16)
+	else if (rspi->bits_per_word == 16)
 		rspi->spcmd |= SPCMD_SPB_16BIT;
 	else
 		rspi->spcmd |= SPCMD_SPB_32BIT;
@@ -470,7 +502,7 @@ static int rspi_wait_for_interrupt(struct rspi_data *rspi, u8 wait_mask,
 		return 0;
 
 	rspi_enable_irq(rspi, enable_bit);
-	ret = wait_event_timeout(rspi->wait, rspi->spsr & wait_mask, 10*HZ);
+	ret = wait_event_timeout(rspi->wait, rspi->spsr & wait_mask, 10 * HZ);
 	if (ret == 0 && !(rspi->spsr & wait_mask))
 		return -ETIMEDOUT;
 
@@ -487,48 +519,93 @@ static inline int rspi_wait_for_rx_full(struct rspi_data *rspi)
 	return rspi_wait_for_interrupt(rspi, SPSR_SPRF, SPCR_SPRIE);
 }
 
-static int rspi_data_out(struct rspi_data *rspi, u8 data)
+static void rspi_data_out_8(struct rspi_data *rspi, const void *tx, int count)
 {
-	int error = rspi_wait_for_tx_empty(rspi);
-	if (error < 0) {
-		dev_err(&rspi->ctlr->dev, "transmit timeout\n");
-		return error;
-	}
-	rspi_write_data(rspi, data);
-	return 0;
+	const u8 *buf_8 = tx;
+
+	rspi_write8(rspi, buf_8[count], RSPI_SPDR);
 }
 
-static int rspi_data_in(struct rspi_data *rspi)
+static void rspi_data_out_16(struct rspi_data *rspi, const void *tx, int count)
 {
-	int error;
-	u8 data;
+	const u16 *buf_16 = tx;
 
-	error = rspi_wait_for_rx_full(rspi);
-	if (error < 0) {
-		dev_err(&rspi->ctlr->dev, "receive timeout\n");
-		return error;
-	}
-	data = rspi_read_data(rspi);
-	return data;
+	rspi_write16(rspi, buf_16[count], RSPI_SPDR);
 }
 
-static int rspi_pio_transfer(struct rspi_data *rspi, const u8 *tx, u8 *rx,
+static void rspi_data_out_32(struct rspi_data *rspi, const void *tx, int count)
+{
+	const u32 *buf_32 = tx;
+
+	rspi_write32(rspi, buf_32[count], RSPI_SPDR);
+}
+
+static void rspi_data_in_8(struct rspi_data *rspi, void *rx, int count)
+{
+	u8 *buf_8 = rx;
+
+	buf_8[count] = rspi_read8(rspi, RSPI_SPDR);
+}
+
+static void rspi_data_in_16(struct rspi_data *rspi, void *rx, int count)
+{
+	u16 *buf_16 = rx;
+
+	buf_16[count] = rspi_read16(rspi, RSPI_SPDR);
+}
+
+static void rspi_data_in_32(struct rspi_data *rspi, void *rx, int count)
+{
+	u32 *buf_32 = rx;
+
+	buf_32[count] = rspi_read32(rspi, RSPI_SPDR);
+}
+
+static int rspi_pio_transfer(struct rspi_data *rspi, const void *tx, void *rx,
 			     unsigned int n)
 {
-	while (n-- > 0) {
+	int words = n / (rspi->bits_per_word / 8);
+	void (*tx_fifo)(struct rspi_data *rspi, const void *tx, int count);
+	void (*rx_fifo)(struct rspi_data *rspi, void *rx, int count);
+	int ret, count;
+
+	switch (rspi->bits_per_word) {
+	case 8:
+		tx_fifo = rspi_data_out_8;
+		rx_fifo = rspi_data_in_8;
+		break;
+	case 16:
+		tx_fifo = rspi_data_out_16;
+		rx_fifo = rspi_data_in_16;
+		break;
+	case 32:
+		tx_fifo = rspi_data_out_32;
+		rx_fifo = rspi_data_in_32;
+		break;
+	default:
+		return -EINVAL;
+	}
+	for (count = 0; count < words; count++) {
 		if (tx) {
-			int ret = rspi_data_out(rspi, *tx++);
-			if (ret < 0)
+			ret = rspi_wait_for_tx_empty(rspi);
+			if (ret < 0) {
+				dev_err(&rspi->ctlr->dev, "transmit timeout\n");
 				return ret;
-		}
-		if (rx) {
-			int ret = rspi_data_in(rspi);
-			if (ret < 0)
-				return ret;
-			*rx++ = ret;
+			}
+			tx_fifo(rspi, tx, count);
 		}
 	}
 
+	for (count = 0; count < words; count++) {
+		if (rx) {
+			ret = rspi_wait_for_rx_full(rspi);
+			if (ret < 0) {
+				dev_err(&rspi->ctlr->dev, "receive timeout %d\n", count);
+				return ret;
+			}
+			rx_fifo(rspi, rx, count);
+		}
+	}
 	return 0;
 }
 
@@ -617,21 +694,19 @@ static int rspi_dma_transfer(struct rspi_data *rspi, struct sg_table *tx,
 					       rspi->dma_callbacked, HZ);
 	if (ret > 0 && rspi->dma_callbacked) {
 		ret = 0;
-		if (rspi->ops->need_dmar_clr) {
-			if (tx)
-				dmaengine_synchronize(rspi->ctlr->dma_tx);
-			if (rx)
-				dmaengine_synchronize(rspi->ctlr->dma_rx);
-		}
+		if (tx)
+			dmaengine_synchronize(rspi->ctlr->dma_tx);
+		if (rx)
+			dmaengine_synchronize(rspi->ctlr->dma_rx);
 	} else {
 		if (!ret) {
 			dev_err(&rspi->ctlr->dev, "DMA timeout\n");
 			ret = -ETIMEDOUT;
 		}
 		if (tx)
-			dmaengine_terminate_all(rspi->ctlr->dma_tx);
+			dmaengine_terminate_sync(rspi->ctlr->dma_tx);
 		if (rx)
-			dmaengine_terminate_all(rspi->ctlr->dma_rx);
+			dmaengine_terminate_sync(rspi->ctlr->dma_rx);
 	}
 
 	rspi_disable_irq(rspi, irq_mask);
@@ -645,7 +720,7 @@ static int rspi_dma_transfer(struct rspi_data *rspi, struct sg_table *tx,
 
 no_dma_tx:
 	if (rx)
-		dmaengine_terminate_all(rspi->ctlr->dma_rx);
+		dmaengine_terminate_sync(rspi->ctlr->dma_rx);
 no_dma_rx:
 	if (ret == -EAGAIN) {
 		dev_warn_once(&rspi->ctlr->dev,
@@ -670,7 +745,15 @@ static void rspi_rz_receive_init(const struct rspi_data *rspi)
 {
 	rspi_receive_init(rspi);
 	rspi_write8(rspi, SPBFCR_TXRST | SPBFCR_RXRST, RSPI_SPBFCR);
-	rspi_write8(rspi, 0, RSPI_SPBFCR);
+	if (rspi->bits_per_word == 8)
+		rspi_write8(rspi, RSPI_SPBFCR_TXTRG_7
+				| RSPI_SPBFCR_RXTRG_1, RSPI_SPBFCR);
+	else if (rspi->bits_per_word == 16)
+		rspi_write8(rspi, RSPI_SPBFCR_TXTRG_6
+				| RSPI_SPBFCR_RXTRG_2, RSPI_SPBFCR);
+	else
+		rspi_write8(rspi, RSPI_SPBFCR_TXTRG_4
+				| RSPI_SPBFCR_RXTRG_4, RSPI_SPBFCR);
 }
 
 static void qspi_receive_init(const struct rspi_data *rspi)
@@ -701,8 +784,32 @@ static bool rspi_can_dma(struct spi_controller *ctlr, struct spi_device *spi,
 static int rspi_dma_check_then_transfer(struct rspi_data *rspi,
 					 struct spi_transfer *xfer)
 {
+	struct dma_slave_config cfg;
+	enum dma_slave_buswidth width;
+
 	if (!rspi->ctlr->can_dma || !__rspi_can_dma(rspi, xfer))
 		return -EAGAIN;
+
+	memset(&cfg, 0, sizeof(cfg));
+
+	if (rspi->bits_per_word == 8)
+		width = DMA_SLAVE_BUSWIDTH_1_BYTE;
+	else if (rspi->bits_per_word == 16)
+		width = DMA_SLAVE_BUSWIDTH_2_BYTES;
+	else
+		width = DMA_SLAVE_BUSWIDTH_4_BYTES;
+
+	cfg.dst_addr = rspi->pdev->resource->start + RSPI_SPDR;
+	cfg.src_addr = rspi->pdev->resource->start + RSPI_SPDR;
+	cfg.dst_addr_width = width;
+	cfg.src_addr_width = width;
+	cfg.direction = DMA_MEM_TO_DEV;
+
+	dmaengine_slave_config(rspi->ctlr->dma_tx, &cfg);
+
+	cfg.direction = DMA_DEV_TO_MEM;
+
+	dmaengine_slave_config(rspi->ctlr->dma_rx, &cfg);
 
 	/* rx_buf can be NULL on RSPI on SH in TX-only Mode */
 	return rspi_dma_transfer(rspi, &xfer->tx_sg,
@@ -845,7 +952,7 @@ static int qspi_transfer_in(struct rspi_data *rspi, struct spi_transfer *xfer)
 	int ret;
 
 	if (rspi->ctlr->can_dma && __rspi_can_dma(rspi, xfer)) {
-		int ret = rspi_dma_transfer(rspi, NULL, &xfer->rx_sg);
+		ret = rspi_dma_transfer(rspi, NULL, &xfer->rx_sg);
 		if (ret != -EAGAIN)
 			return ret;
 	}
@@ -944,6 +1051,10 @@ static int qspi_setup_sequencer(struct rspi_data *rspi,
 	}
 	if (i) {
 		/* Set final transfer data length and sequence length */
+		rspi_write16(rspi,
+			rspi_read16(rspi, RSPI_SPCMD(i - 1)) &
+			~SPCMD_SSLKP,
+			RSPI_SPCMD(i - 1));
 		rspi_write32(rspi, len, QSPI_SPBMUL(i - 1));
 		rspi_write8(rspi, i - 1, RSPI_SPSCR);
 	}
@@ -996,6 +1107,7 @@ static int rspi_prepare_message(struct spi_controller *ctlr,
 	list_for_each_entry(xfer, &msg->transfers, transfer_list) {
 		if (xfer->speed_hz < rspi->speed_hz)
 			rspi->speed_hz = xfer->speed_hz;
+		rspi->bits_per_word = xfer->bits_per_word;
 	}
 
 	if (!spi_controller_is_slave(rspi->ctlr))
@@ -1016,7 +1128,7 @@ static int rspi_prepare_message(struct spi_controller *ctlr,
 	if (spi->mode & SPI_LOOP)
 		rspi->sppcr |= SPPCR_SPLP;
 
-	rspi->ops->set_config_register(rspi, 8);
+	rspi->ops->set_config_register(rspi, rspi->bits_per_word);
 
 	if (msg->spi->mode &
 	    (SPI_TX_DUAL | SPI_TX_QUAD | SPI_RX_DUAL | SPI_RX_QUAD)) {
@@ -1099,13 +1211,10 @@ static irqreturn_t rspi_irq_tx(int irq, void *_sr)
 
 static struct dma_chan *rspi_request_dma_chan(struct device *dev,
 					      enum dma_transfer_direction dir,
-					      unsigned int id,
-					      dma_addr_t port_addr)
+					      unsigned int id)
 {
 	dma_cap_mask_t mask;
 	struct dma_chan *chan;
-	struct dma_slave_config cfg;
-	int ret;
 
 	dma_cap_zero(mask);
 	dma_cap_set(DMA_SLAVE, mask);
@@ -1118,25 +1227,10 @@ static struct dma_chan *rspi_request_dma_chan(struct device *dev,
 		return NULL;
 	}
 
-	memset(&cfg, 0, sizeof(cfg));
-	cfg.dst_addr = port_addr + RSPI_SPDR;
-	cfg.src_addr = port_addr + RSPI_SPDR;
-	cfg.dst_addr_width = DMA_SLAVE_BUSWIDTH_1_BYTE;
-	cfg.src_addr_width = DMA_SLAVE_BUSWIDTH_1_BYTE;
-	cfg.direction = dir;
-
-	ret = dmaengine_slave_config(chan, &cfg);
-	if (ret) {
-		dev_warn(dev, "dmaengine_slave_config failed %d\n", ret);
-		dma_release_channel(chan);
-		return NULL;
-	}
-
 	return chan;
 }
 
-static int rspi_request_dma(struct device *dev, struct spi_controller *ctlr,
-			    const struct resource *res)
+static int rspi_request_dma(struct device *dev, struct spi_controller *ctlr)
 {
 	const struct rspi_plat_data *rspi_pd = dev_get_platdata(dev);
 	unsigned int dma_tx_id, dma_rx_id;
@@ -1153,13 +1247,11 @@ static int rspi_request_dma(struct device *dev, struct spi_controller *ctlr,
 		return 0;
 	}
 
-	ctlr->dma_tx = rspi_request_dma_chan(dev, DMA_MEM_TO_DEV, dma_tx_id,
-					     res->start);
+	ctlr->dma_tx = rspi_request_dma_chan(dev, DMA_MEM_TO_DEV, dma_tx_id);
 	if (!ctlr->dma_tx)
 		return -ENODEV;
 
-	ctlr->dma_rx = rspi_request_dma_chan(dev, DMA_DEV_TO_MEM, dma_rx_id,
-					     res->start);
+	ctlr->dma_rx = rspi_request_dma_chan(dev, DMA_DEV_TO_MEM, dma_rx_id);
 	if (!ctlr->dma_rx) {
 		dma_release_channel(ctlr->dma_tx);
 		ctlr->dma_tx = NULL;
@@ -1207,7 +1299,6 @@ static const struct spi_ops rspi_rz_ops = {
 	.flags =		SPI_CONTROLLER_MUST_RX | SPI_CONTROLLER_MUST_TX,
 	.fifo_size =		8,	/* 8 for TX, 32 for RX */
 	.num_hw_ss =		1,
-	.need_dmar_clr =	true,
 };
 
 static const struct spi_ops qspi_ops = {
@@ -1404,7 +1495,7 @@ static int rspi_probe(struct platform_device *pdev)
 		goto error2;
 	}
 
-	ret = rspi_request_dma(&pdev->dev, ctlr, res);
+	ret = rspi_request_dma(&pdev->dev, ctlr);
 	if (ret < 0)
 		dev_warn(&pdev->dev, "DMA not available, using PIO\n");
 
@@ -1471,4 +1562,3 @@ module_platform_driver(rspi_driver);
 MODULE_DESCRIPTION("Renesas RSPI bus driver");
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Yoshihiro Shimoda");
-MODULE_ALIAS("platform:rspi");

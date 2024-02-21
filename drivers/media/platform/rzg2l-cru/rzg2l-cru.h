@@ -34,20 +34,44 @@
 
 /*
  * The base for the RZ/G2L CRU driver controls.
- * We reserve 16 controls for this driver
+ * We reserve 32 controls for this driver
  * The last USER-class private control IDs is V4L2_CID_USER_ATMEL_ISC_BASE.
  */
 
 #define V4L2_CID_USER_CRU_BASE	(V4L2_CID_USER_BASE + 0x10e0)
 
-/* V4L2 private controls */
-#define V4L2_CID_CRU_FRAME_SKIP	(V4L2_CID_USER_CRU_BASE + 0)
-
-#define V4L2_CID_CRU_LIMIT	1
+/* CRU V4L2 private controls */
+enum rzg2l_cru_v4l2_priv_ctrls {
+	V4L2_CID_CRU_FRAME_SKIP = V4L2_CID_USER_CRU_BASE,
+	V4L2_CID_CRU_STATISTICS,
+	V4L2_CID_CRU_SD_BLKSIZE,
+	V4L2_CID_CRU_SD_STHPOS,
+	V4L2_CID_CRU_SD_STSADPOS,
+	V4L2_CID_CRU_LINEAR_MATRIX,
+	V4L2_CID_CRU_LINEAR_MATRIX_ROF,
+	V4L2_CID_CRU_LINEAR_MATRIX_GOF,
+	V4L2_CID_CRU_LINEAR_MATRIX_BOF,
+	V4L2_CID_CRU_LINEAR_MATRIX_RR,
+	V4L2_CID_CRU_LINEAR_MATRIX_RG,
+	V4L2_CID_CRU_LINEAR_MATRIX_RB,
+	V4L2_CID_CRU_LINEAR_MATRIX_GR,
+	V4L2_CID_CRU_LINEAR_MATRIX_GG,
+	V4L2_CID_CRU_LINEAR_MATRIX_GB,
+	V4L2_CID_CRU_LINEAR_MATRIX_BR,
+	V4L2_CID_CRU_LINEAR_MATRIX_BG,
+	V4L2_CID_CRU_LINEAR_MATRIX_BB,
+};
 
 static const struct v4l2_ctrl_ops rzg2l_cru_ctrl_ops;
 
-static const struct v4l2_ctrl_config rzg2l_cru_ctrls[V4L2_CID_CRU_LIMIT] = {
+static const char * const cru_statistics_blksize_menu[] = {
+	"16x16",
+	"32x32",
+	"64x64",
+	"128x128",
+};
+
+static const struct v4l2_ctrl_config rzg2l_cru_ctrls[] = {
 	{
 		.id = V4L2_CID_CRU_FRAME_SKIP,
 		.type = V4L2_CTRL_TYPE_BOOLEAN,
@@ -58,7 +82,177 @@ static const struct v4l2_ctrl_config rzg2l_cru_ctrls[V4L2_CID_CRU_LIMIT] = {
 		.step = 1,
 		.def = 0,
 		.is_private = 1,
-	}
+	}, {
+		.id = V4L2_CID_CRU_STATISTICS,
+		.type = V4L2_CTRL_TYPE_BOOLEAN,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Statistics Data Enable/Disable",
+		.max = 1,
+		.min = 0,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_SD_BLKSIZE,
+		.type = V4L2_CTRL_TYPE_MENU,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Statistics Data Unit Blocksize",
+		.max = 3,
+		.min = 0,
+		.def = 0,
+		.is_private = 1,
+		.qmenu = cru_statistics_blksize_menu,
+	}, {
+		.id = V4L2_CID_CRU_SD_STHPOS,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Statistics Horizontal Start Position",
+		.max = 376,
+		.min = 0,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_SD_STSADPOS,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Statistics Input Data Bit Position",
+		.max = 8,
+		.min = 0,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX,
+		.type = V4L2_CTRL_TYPE_BOOLEAN,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix Processing Enable/Disable",
+		.max = 1,
+		.min = 0,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_ROF,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix R offset",
+		.max = 127,
+		.min = -128,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_GOF,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix G offset",
+		.max = 127,
+		.min = -128,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_BOF,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix B offset",
+		.max = 127,
+		.min = -128,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_RR,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix RR coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_RG,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix RG coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_RB,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix RB coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_GR,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix GR coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_GG,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix GG coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_GB,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix GB coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_BR,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix BR coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_BG,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix BG coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_BB,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix BB coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	},
 };
 
 /* Minimum skipping frame for camera sensors stability */
@@ -220,6 +414,19 @@ struct rzg2l_cru_dev {
 	wait_queue_head_t setup_wait;
 	bool suspend;
 	bool is_frame_skip;
+
+	struct task_struct *retry_thread;
+
+	bool is_statistics;
+	int sd_blksize;
+	int sd_sthpos;
+	int sd_stsadpos;
+
+	bool is_linear_matrix_enable;
+	int linear_matrix_rgb_offset[3];
+	int linear_matrix_r[3];	/* RR, RG, RB */
+	int linear_matrix_g[3]; /* GR, GG, GB */
+	int linear_matrix_b[3]; /* BR, BG, BB */
 };
 
 #define cru_to_source(cru)		((cru)->parallel->subdev)

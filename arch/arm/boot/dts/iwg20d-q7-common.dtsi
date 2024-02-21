@@ -31,6 +31,7 @@
 / {
 	aliases {
 		serial0 = &scif0;
+		serial2 = &scif4;
 		serial3 = &scifb1;
 		ethernet0 = &avb;
 	};
@@ -52,6 +53,7 @@
 		pwms = <&pwm3 0 5000000 0>;
 		brightness-levels = <0 4 8 16 32 64 128 255>;
 		default-brightness-level = <7>;
+		power-supply = <&vcc_3v3_tft1>;
 		enable-gpios = <&gpio5 14 GPIO_ACTIVE_HIGH>;
 	};
 
@@ -174,11 +176,22 @@
 	status = "okay";
 };
 
+&cmt1 {
+	status = "okay";
+};
+
 &du {
 	status = "okay";
 };
 
 &gpio2 {
+	can0-trx-en-gpio {
+		gpio-hog;
+		gpios = <3 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "can0-trx-en-gpio";
+	};
+
 	touch-interrupt {
 		gpio-hog;
 		gpios = <12 GPIO_ACTIVE_LOW>;
@@ -186,10 +199,17 @@
 	};
 };
 
+&gpio7 {
+	lcd-power-eb-gpio {
+		gpio-hog;
+		gpios = <25 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "lcd-power-eb-gpio";
+	};
+};
+
 &hsusb {
 	status = "okay";
-	pinctrl-0 = <&usb0_pins>;
-	pinctrl-names = "default";
 };
 
 &i2c2 {
@@ -199,9 +219,10 @@
 	status = "okay";
 	clock-frequency = <400000>;
 
-	rtc@68 {
-		compatible = "ti,bq32000";
-		reg = <0x68>;
+	rtc@51 {
+		compatible = "nxp,pcf85263";
+		reg = <0x51>;
+
 	};
 
 	sgtl5000: codec@a {
@@ -212,6 +233,8 @@
 		VDDA-supply = <&reg_3p3v>;
 		VDDIO-supply = <&reg_3p3v>;
 		VDDD-supply = <&reg_1p5v>;
+		hp-det-gpios = <&gpio2 19 GPIO_ACTIVE_LOW>;
+		mic-det-gpios = <&gpio2 21 GPIO_ACTIVE_LOW>;
 	};
 
 	touch: touchpanel@38 {
@@ -219,6 +242,7 @@
 		reg = <0x38>;
 		interrupt-parent = <&gpio2>;
 		interrupts = <12 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&gpio2 13 GPIO_ACTIVE_LOW>;
 		vcc-supply = <&vcc_3v3_tft1>;
 	};
 };
@@ -236,14 +260,7 @@
 };
 
 &pci0 {
-	pinctrl-0 = <&usb0_pins>;
-	pinctrl-names = "default";
-};
-
-&pci1 {
 	status = "okay";
-	pinctrl-0 = <&usb1_pins>;
-	pinctrl-names = "default";
 };
 
 &pcie_bus_clk {
@@ -274,6 +291,11 @@
 	scif0_pins: scif0 {
 		groups = "scif0_data_d";
 		function = "scif0";
+	};
+
+	scif4_pins: serial2 {
+		groups = "scif4_data_c";
+		function = "scif4";
 	};
 
 	scifb1_pins: scifb1 {
@@ -343,6 +365,12 @@
 	status = "okay";
 };
 
+&scif4 {
+	pinctrl-0 = <&scif4_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
 &scifb1 {
 	pinctrl-0 = <&scifb1_pins>;
 	pinctrl-names = "default";
@@ -364,10 +392,26 @@
 	status = "okay";
 };
 
+&tmu1 {
+	status = "okay";
+};
+
 &ssi1 {
 	shared-pin;
 };
 
 &usbphy {
+	status = "okay";
+	renesas,id-gpio = <&gpio1 11 GPIO_ACTIVE_LOW>;
+	renesas,vbus-gpio = <&gpio7 24 GPIO_ACTIVE_LOW>;
+	renesas,vbus-pwr-gpio = <&gpio7 23 GPIO_ACTIVE_LOW>;
+	renesas,wakeup;
+};
+
+&tpu {
+	status = "okay";
+};
+
+&xhci {
 	status = "okay";
 };

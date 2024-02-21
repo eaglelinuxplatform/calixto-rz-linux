@@ -38,6 +38,8 @@
 
 	aliases {
 		ethernet0 = &avb;
+		serial1 = &scif2;
+		serial2 = &scif3;
 		serial3 = &scif4;
 		serial5 = &hscif1;
 	};
@@ -107,6 +109,34 @@
 			sound-dai = <&sgtl5000>;
 		};
 	};
+
+	clk_ov7725: ov7725-clock {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <26000000>;
+	};
+
+	clk_ov5640: ov5640-clock {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <26000000>;
+	};
+
+	reg_1p8v: 1p8v {
+		compatible = "regulator-fixed";
+		regulator-name = "1P8V";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+	};
+
+	reg_2p8v: 2p8v {
+		compatible = "regulator-fixed";
+		regulator-name = "2P8V";
+		regulator-min-microvolt = <2800000>;
+		regulator-max-microvolt = <2800000>;
+		regulator-always-on;
+	};
 };
 
 &avb {
@@ -122,8 +152,9 @@
 	/*
 	 * On some older versions of the platform (before R4.0) the phy address
 	 * may be 1 or 3. The address is fixed to 3 for R4.0 onwards.
+	 * Remove <reg> property to enable autoscan function.
 	 */
-		reg = <3>;
+		/* reg = <3>; */
 		micrel,led-mode = <1>;
 	};
 };
@@ -150,6 +181,32 @@
 	};
 };
 
+&gpio4 {
+	can0-trx-en-gpio {
+		gpio-hog;
+		gpios = <2 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "can0-trx-en-gpio";
+	};
+};
+
+&gpio4 {
+	touch-interrupt {
+		gpio-hog;
+		gpios = <4 GPIO_ACTIVE_LOW>;
+		input;
+	};
+};
+
+&gpio5 {
+	cam-power{
+		gpio-hog;
+		gpios = <20 GPIO_ACTIVE_LOW>;
+		output-high;
+		line-name = "cam-power";
+	};
+};
+
 &hscif1 {
 	pinctrl-0 = <&hscif1_pins>;
 	pinctrl-names = "default";
@@ -160,8 +217,6 @@
 
 &hsusb {
 	status = "okay";
-	pinctrl-0 = <&usb0_pins>;
-	pinctrl-names = "default";
 };
 
 &i2c5 {
@@ -178,6 +233,46 @@
 		clocks = <&audio_clock>;
 		VDDA-supply = <&reg_3p3v>;
 		VDDIO-supply = <&reg_3p3v>;
+	};
+
+	ov5640@3c {
+		compatible = "ovti,ov5640";
+		reg = <0x3c>;
+		remote = <&vin1>;
+
+		port {
+			ov5640: endpoint {
+				bus-width = <8>;
+				pclk-sample = <1>;
+				remote-endpoint = <&vin1ep>;
+			};
+		};
+	};
+
+	ov7725@21 {
+		compatible = "ovti,ov7725";
+		reg = <0x21>;
+		remote = <&vin1>;
+		clocks = <&clk_ov7725>;
+
+		/* mark OV7725 as disabled by default
+		 * to enable, run command below under U-boot command line
+		 * 	setenv vin1_camera 'ov7725'
+		 * Note: no need to update status here
+		 */
+		status = "disabled";
+
+		port {
+			ov7725: endpoint {
+				bus-type = <6>;
+				data-shift = <2>;
+				bus-width = <8>;
+				pclk-sample = <1>;
+				hsync-active = <0>;
+				vsync-active = <0>;
+				remote-endpoint = <&vin1ep>;
+			};
+		};
 	};
 
 	stmpe811@44 {
@@ -212,12 +307,39 @@
 			st,touch-det-delay = <5>;
 		};
 	};
+
+	ov5640@3c {
+		compatible = "ovti,ov5640";
+		reg = <0x3c>;
+		clocks = <&clk_ov5640>;
+		clock-names = "xclk";
+		AVDD-supply = <&reg_2p8v>;
+		DOVDD-supply = <&reg_2p8v>;
+		DVDD-supply = <&reg_1p8v>;
+		status = "okay";
+
+		port {
+			ov5640: endpoint {
+				bus-type = <6>;
+				data-shift = <2>;
+				bus-width = <8>;
+				pclk-sample = <1>;
+				hsync-active = <0>;
+				vsync-active = <0>;
+				remote-endpoint = <&vin1ep>;
+			};
+		};
+	};
 };
 
 &pci1 {
 	status = "okay";
 	pinctrl-0 = <&usb1_pins>;
 	pinctrl-names = "default";
+};
+
+&pci0 {
+	status = "okay";
 };
 
 &pfc {
@@ -251,6 +373,16 @@
 		function = "i2c5";
 	};
 
+	scif2_pins: serial1 {
+		groups = "scif2_data";
+		function = "scif2";
+	};
+
+	scif3_pins: serial2 {
+		groups = "scif3_data";
+		function = "scif3";
+	};
+
 	scif4_pins: scif4 {
 		groups = "scif4_data_b";
 		function = "scif4";
@@ -260,6 +392,12 @@
 		groups = "sdhi0_data4", "sdhi0_ctrl";
 		function = "sdhi0";
 		power-source = <3300>;
+	};
+
+	sdhi0_pins_uhs: sd0_uhs {
+		groups = "sdhi0_data4", "sdhi0_ctrl";
+		function = "sdhi0";
+		power-source = <1800>;
 	};
 
 	sound_pins: sound {
@@ -275,6 +413,11 @@
 	usb1_pins: usb1 {
 		groups = "usb1";
 		function = "usb1";
+	};
+
+	vin1_pins: vin1 {
+		groups = "vin1_data8", "vin1_sync", "vin1_field", "vin1_clk";
+		function = "vin1";
 	};
 };
 
@@ -295,6 +438,20 @@
 	};
 };
 
+&scif2 {
+	pinctrl-0 = <&scif2_pins>;
+	pinctrl-names = "default";
+
+	status = "okay";
+};
+
+&scif3 {
+	pinctrl-0 = <&scif3_pins>;
+	pinctrl-names = "default";
+
+	status = "okay";
+};
+
 &scif4 {
 	pinctrl-0 = <&scif4_pins>;
 	pinctrl-names = "default";
@@ -302,13 +459,19 @@
 	status = "okay";
 };
 
+&tmu1 {
+	status = "okay";
+};
+
 &sdhi0 {
 	pinctrl-0 = <&sdhi0_pins>;
-	pinctrl-names = "default";
+	pinctrl-1 = <&sdhi0_pins_uhs>;
+	pinctrl-names = "default", "state_uhs";
 
 	vmmc-supply = <&reg_3p3v>;
 	vqmmc-supply = <&vccq_sdhi0>;
 	cd-gpios = <&gpio6 6 GPIO_ACTIVE_LOW>;
+	sd-uhs-sdr50;
 	status = "okay";
 };
 
@@ -324,4 +487,24 @@
 
 &usbphy {
 	status = "okay";
+	renesas,id-gpio = <&gpio4 6 GPIO_ACTIVE_LOW>;
+	renesas,vbus-gpio = <&gpio5 25 GPIO_ACTIVE_LOW>;
+	renesas,vbus-pwr-gpio = <&gpio5 24 GPIO_ACTIVE_LOW>;
+	renesas,wakeup;
+};
+
+&vin1 {
+	status = "okay";
+	pinctrl-0 = <&vin1_pins>;
+	pinctrl-names = "default";
+
+	port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		vin1ep: endpoint {
+			remote-endpoint = <&ov5640>;
+			bus-width = <8>;
+		};
+	};
 };

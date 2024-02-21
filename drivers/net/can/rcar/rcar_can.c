@@ -235,11 +235,8 @@ static void rcar_can_error(struct net_device *ndev)
 	if (eifr & (RCAR_CAN_EIFR_EWIF | RCAR_CAN_EIFR_EPIF)) {
 		txerr = readb(&priv->regs->tecr);
 		rxerr = readb(&priv->regs->recr);
-		if (skb) {
+		if (skb)
 			cf->can_id |= CAN_ERR_CRTL;
-			cf->data[6] = txerr;
-			cf->data[7] = rxerr;
-		}
 	}
 	if (eifr & RCAR_CAN_EIFR_BEIF) {
 		int rx_errors = 0, tx_errors = 0;
@@ -339,6 +336,9 @@ static void rcar_can_error(struct net_device *ndev)
 		can_bus_off(ndev);
 		if (skb)
 			cf->can_id |= CAN_ERR_BUSOFF;
+	} else if (skb) {
+		cf->data[6] = txerr;
+		cf->data[7] = rxerr;
 	}
 	if (eifr & RCAR_CAN_EIFR_ORIF) {
 		netdev_dbg(priv->ndev, "Receive overrun error interrupt\n");
@@ -400,7 +400,7 @@ static irqreturn_t rcar_can_interrupt(int irq, void *dev_id)
 {
 	struct net_device *ndev = dev_id;
 	struct rcar_can_priv *priv = netdev_priv(ndev);
-	u8 isr;
+	u8 isr, cc;
 
 	isr = readb(&priv->regs->isr);
 	if (!(isr & priv->ier))
@@ -412,7 +412,8 @@ static irqreturn_t rcar_can_interrupt(int irq, void *dev_id)
 	if (isr & RCAR_CAN_ISR_TXFF)
 		rcar_can_tx_done(ndev);
 
-	if (isr & RCAR_CAN_ISR_RXFF) {
+	cc = readb(&priv->regs->ier);
+	if (isr & RCAR_CAN_ISR_RXFF && cc & RCAR_CAN_IER_RXFIE) {
 		if (napi_schedule_prep(&priv->napi)) {
 			/* Disable Rx FIFO interrupts */
 			priv->ier &= ~RCAR_CAN_IER_RXFIE;
@@ -895,6 +896,10 @@ static int __maybe_unused rcar_can_resume(struct device *dev)
 static SIMPLE_DEV_PM_OPS(rcar_can_pm_ops, rcar_can_suspend, rcar_can_resume);
 
 static const struct of_device_id rcar_can_of_table[] __maybe_unused = {
+	{ .compatible = "renesas,can-r8a7742" },
+	{ .compatible = "renesas,can-r8a7744" },
+	{ .compatible = "renesas,can-r8a7745" },
+	{ .compatible = "renesas,can-r8a77470" },
 	{ .compatible = "renesas,can-r8a7778" },
 	{ .compatible = "renesas,can-r8a7779" },
 	{ .compatible = "renesas,can-r8a7790" },

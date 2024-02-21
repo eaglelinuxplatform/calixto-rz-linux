@@ -79,7 +79,7 @@ config COMMON_CLK_RK808
 config COMMON_CLK_HI655X
 	tristate "Clock driver for Hi655x" if EXPERT
 	depends on (MFD_HI655X_PMIC || COMPILE_TEST)
-	depends on REGMAP
+	select REGMAP
 	default MFD_HI655X_PMIC
 	help
 	  This driver supports the hi655x PMIC clock. This
@@ -310,6 +310,15 @@ config COMMON_CLK_OXNAS
 	select MFD_SYSCON
 	help
 	  Support for the OXNAS SoC Family clocks.
+
+config COMMON_CLK_VC3
+	tristate "Clock driver for Renesas VersaClock 3 devices"
+	depends on I2C
+	depends on OF
+	select REGMAP_I2C
+	help
+	  This driver supports the Renesas VersaClock 3 programmable clock
+	  generators.
 
 config COMMON_CLK_VC5
 	tristate "Clock driver for IDT VersaClock 5,6 devices"

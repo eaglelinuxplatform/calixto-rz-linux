@@ -18,7 +18,7 @@
 	};
 
 	/* SW7 should be at position 2->3 so that GPIO8_CAN0_STB line is activated */
-	can0-stb {
+	can0-stb-hog {
 		gpio-hog;
 		gpios = <RZG2L_GPIO(42, 2) GPIO_ACTIVE_HIGH>;
 		output-low;
@@ -31,7 +31,7 @@
 	};
 
 	/* SW8 should be at position 2->3 so that GPIO9_CAN1_STB line is activated */
-	can1-stb {
+	can1-stb-hog {
 		gpio-hog;
 		gpios = <RZG2L_GPIO(42, 3) GPIO_ACTIVE_HIGH>;
 		output-low;
@@ -52,6 +52,26 @@
 		pinmux = <RZG2L_PORT_PINMUX(18, 0, 3)>, /* SDA */
 			 <RZG2L_PORT_PINMUX(18, 1, 3)>; /* SCL */
 	};
+
+#if (MTU3_PWM_SUPPORT || MTU3_PHASE_COUNTING_SUPPORT)
+	mtu3_pins: mtu3 {
+		pinmux =
+#if MTU3_PHASE_COUNTING_SUPPORT
+			<RZG2L_PORT_PINMUX(48, 0, 4)>, /* MTCLKA */
+#if (!MTU3_PWM_SUPPORT)
+			<RZG2L_PORT_PINMUX(48, 1, 4)>; /* MTLCKB */
+#else
+			<RZG2L_PORT_PINMUX(48, 1, 4)>, /* MTLCKB */
+#endif
+#endif
+#if MTU3_PWM_SUPPORT
+			<RZG2L_PORT_PINMUX(44, 0, 4)>, /* MTIOC3A */
+			<RZG2L_PORT_PINMUX(44, 1, 4)>, /* MTIOC3B */
+			<RZG2L_PORT_PINMUX(44, 2, 4)>, /* MTIOC3C */
+			<RZG2L_PORT_PINMUX(44, 3, 4)>; /* MTIOC3D */
+#endif
+	};
+#endif
 
 	scif0_pins: scif0 {
 		pinmux = <RZG2L_PORT_PINMUX(38, 0, 1)>,	/* TxD */
@@ -149,25 +169,5 @@
 		pinmux = <RZG2L_PORT_PINMUX(43, 0, 2)>, /* Channel A */
 			 <RZG2L_PORT_PINMUX(43, 1, 2)>; /* Channel B */
 	};
-
-#if (MTU3_PWM_SUPPORT || MTU3_PHASE_COUNTING_SUPPORT)
-	mtu3_pins: mtu3 {
-		pinmux =
-#if MTU3_PHASE_COUNTING_SUPPORT
-			<RZG2L_PORT_PINMUX(48, 0, 4)>, /* MTCLKA */
-#if (!MTU3_PWM_SUPPORT)
-			<RZG2L_PORT_PINMUX(48, 1, 4)>; /* MTLCKB */
-#else
-			<RZG2L_PORT_PINMUX(48, 1, 4)>, /* MTLCKB */
-#endif
-#endif
-#if MTU3_PWM_SUPPORT
-			<RZG2L_PORT_PINMUX(44, 0, 4)>, /* MTIOC3A */
-			<RZG2L_PORT_PINMUX(44, 1, 4)>, /* MTIOC3B */
-			<RZG2L_PORT_PINMUX(44, 2, 4)>, /* MTIOC3C */
-			<RZG2L_PORT_PINMUX(44, 3, 4)>; /* MTIOC3D */
-#endif
-	};
-#endif
 };
 

@@ -19,32 +19,22 @@
  */
 
 #define SW_SD0_DEV_SEL	1
-#define SW_I2S0_I2S1	1
 
 #define SW_SCIF_CAN	0
 #if (SW_SCIF_CAN)
 /* Due to HW routing, SW_RSPI_CAN is always 0 when SW_SCIF_CAN is set to 1 */
 #define SW_RSPI_CAN	0
-
-#define SCIF1_GPT3     1 /* Enable GPT3 when SCIF1 disabled */
-
+#define SCIF1_GPT3	1 /* Enable GPT3 when SCIF1 disabled */
 #else
 /* Please set SW_RSPI_CAN. Default value is 1 */
 #define SW_RSPI_CAN	1
-
-/*
- * SCIF1 and GPT3 have pin conflict, only enable one
- * SCIF1_GPT3 (0: SCIF1; 1: GPT3)
- * Default SCIF1_GPT3 value is 0.
- */
-
-#define SCIF1_GPT3     0
-
 #endif
 
 #if (SW_SCIF_CAN & SW_RSPI_CAN)
 #error "Can not set 1 to both SW_SCIF_CAN and SW_RSPI_CAN due to HW routing"
 #endif
+
+#define SW_I2S0_I2S1   1
 
 #include "rzg2lc-smarc-som.dtsi"
 #include "rzg2lc-smarc-pinfunction.dtsi"
@@ -53,9 +43,8 @@
 /* comment the #define statement to disable SCIF1 (SER0) on PMOD1 (CN7) */
 #define PMOD1_SER0	1
 
-/* Select function support POEGD (1: enabled, 0 : disabled)
- */
-#define POEGD_SUPPORT          1
+/* Select function support POEGD (1: enabled, 0 : disabled) */
+#define POEGD_SUPPORT	1
 
 / {
 	aliases {
@@ -66,13 +55,20 @@
 		i2c2 = &i2c2;
 #endif
 	};
+
 #if (SW_I2S0_I2S1)
 	/delete-node/ sound;
+
 	sound_card {
 		compatible = "audio-graph-card";
 		dais = <&i2s2_port0>;
 	};
 #endif
+	x1_clk: x1-clock {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <24000000>;
+	};
 };
 
 #if ((SW_SCIF_CAN || SW_RSPI_CAN) && !MTU3_PWM_SUPPORT)
@@ -85,6 +81,56 @@
 	/delete-property/ pinctrl-0;
 	/delete-property/ pinctrl-names;
 	status = "disabled";
+};
+#endif
+
+#if (!SW_I2S0_I2S1)
+&codec_dai {
+	clocks = <&versa3 3>;
+};
+
+&cpu_dai {
+	sound-dai = <&ssi0>;
+};
+
+&i2c2 {
+	pinctrl-0 = <&i2c2_pins>;
+	pinctrl-names = "default";
+	clock-frequency = <400000>;
+
+	status = "okay";
+
+	versa3: versa3@68 {
+		compatible = "renesas,5p35023";
+		reg = <0x68>;
+		#clock-cells = <1>;
+		clocks = <&x1_clk>;
+		clock-names = "x1";
+		assigned-clocks = <&versa3 0>,
+				   <&versa3 1>,
+				   <&versa3 2>,
+				   <&versa3 3>,
+				   <&versa3 4>,
+				   <&versa3 5>;
+		assigned-clock-rates =	<12288000>, <25000000>,
+					<12000000>, <11289600>,
+					<11289600>, <24000000>;
+		clock-divider-read-only = <1>, <1>, <1>, <1>, <1>;
+		clock-flags = <2176>, <2176>, <2176>, <2052>, <2176>, <2048>;
+	};
+
+	wm8978: codec@1a {
+		compatible = "wlf,wm8978";
+		#sound-dai-cells = <0>;
+		reg = <0x1a>;
+	};
+};
+
+&adv7535 {
+	/delete-property/ #sound-dai-cells;
+	ports {
+		/delete-node/ port@2;
+	};
 };
 #endif
 
@@ -105,6 +151,36 @@
 };
 #endif
 
+&ssi0 {
+	pinctrl-0 = <&ssi0_pins>;
+	pinctrl-names = "default";
+
+	status = "okay";
+
+#if (SW_I2S0_I2S1)
+	ports {
+		i2s2_port0: port@0 {
+			i2s2_cpu_endpoint: endpoint {
+				remote-endpoint = <&codec_endpoint>;
+				dai-format = "i2s";
+			};
+		};
+	};
+#endif
+};
+
+#if (SW_RSPI_CAN)
+&spi1 {
+	/delete-property/ pinctrl-0;
+	/delete-property/ pinctrl-names;
+	status = "disabled";
+};
+#endif
+
+&vccq_sdhi1 {
+	gpios = <&pinctrl RZG2L_GPIO(39, 1) GPIO_ACTIVE_HIGH>;
+};
+
 &ov5645 {
 	enable-gpios = <&pinctrl RZG2L_GPIO(0, 1) GPIO_ACTIVE_HIGH>;
 	reset-gpios = <&pinctrl RZG2L_GPIO(5, 2) GPIO_ACTIVE_LOW>;
@@ -114,44 +190,6 @@
 	interrupt-parent = <&pinctrl>;
 	interrupts = <RZG2L_GPIO(43, 1) IRQ_TYPE_EDGE_FALLING>;
 };
-
-&i2c3 {
-	/delete-node/ codec@1a;
-};
-
-#if (SW_I2S0_I2S1)
-&ssi0 {
-	ports {
-		i2s2_port0: port@0 {
-			i2s2_cpu_endpoint: endpoint {
-				remote-endpoint = <&codec_endpoint>;
-				dai-format = "i2s";
-			};
-		};
-	};
-};
-#else
-&adv7535 {
-	/delete-property/ #sound-dai-cells;
-	ports {
-		/delete-node/ port@2;
-	};
-};
-
-&i2c2 {
-	pinctrl-0 = <&i2c2_pins>;
-	pinctrl-names = "default";
-	clock-frequency = <400000>;
-
-	status = "okay";
-
-	wm8978: codec@1a {
-		compatible = "wlf,wm8978";
-		#sound-dai-cells = <0>;
-		reg = <0x1a>;
-	};
-};
-#endif
 
 #if (POEGD_SUPPORT)
 &poega {
@@ -179,14 +217,6 @@
 #if (POEGD_SUPPORT)
 	poeg = <&poega &poegb &poegc &poegd>;
 #endif
-	status = "okay";
-};
-#endif
-
-#if (!SW_RSPI_CAN && !MTU3_PWM_SUPPORT)
-&spi1 {
-	pinctrl-0 = <&spi1_pins>;
-	pinctrl-names = "default";
 	status = "okay";
 };
 #endif

@@ -6,16 +6,20 @@
  */
 #include <linux/bitops.h>
 #include <linux/clk.h>
+#include <linux/clk-provider.h>
 #include <linux/delay.h>
 #include <linux/io.h>
+#include <linux/iopoll.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/of.h>
+#include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/reset.h>
 #include <linux/units.h>
 #include <linux/watchdog.h>
+
+#include "../clk/renesas/rzg2l-cpg.h"
 
 #define WDTCNT		0x00
 #define WDTSET		0x04
@@ -35,10 +39,17 @@
 
 #define F2CYCLE_NSEC(f)			(1000000000 / (f))
 
+#define RZV2M_A_NSEC			730
+
 static bool nowayout = WATCHDOG_NOWAYOUT;
 module_param(nowayout, bool, 0);
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
 				__MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
+
+enum rz_wdt_type {
+	WDT_RZG2L,
+	WDT_RZV2M,
+};
 
 struct rzg2l_wdt_priv {
 	void __iomem *base;
@@ -46,9 +57,34 @@ struct rzg2l_wdt_priv {
 	struct reset_control *rstc;
 	unsigned long osc_clk_rate;
 	unsigned long delay;
+	unsigned long minimum_assertion_period;
 	struct clk *pclk;
 	struct clk *osc_clk;
+	enum rz_wdt_type devtype;
 };
+
+static int rzg2l_wdt_reset(struct rzg2l_wdt_priv *priv)
+{
+	int err, status;
+
+	if (priv->devtype == WDT_RZV2M) {
+		/* WDT needs TYPE-B reset control */
+		err = reset_control_assert(priv->rstc);
+		if (err)
+			return err;
+		ndelay(priv->minimum_assertion_period);
+		err = reset_control_deassert(priv->rstc);
+		if (err)
+			return err;
+		err = read_poll_timeout(reset_control_status, status,
+					status != 1, 0, 1000, false,
+					priv->rstc);
+	} else {
+		err = reset_control_reset(priv->rstc);
+	}
+
+	return err;
+}
 
 static void rzg2l_wdt_wait_delay(struct rzg2l_wdt_priv *priv)
 {
@@ -109,25 +145,23 @@ static int rzg2l_wdt_stop(struct watchdog_device *wdev)
 {
 	struct rzg2l_wdt_priv *priv = watchdog_get_drvdata(wdev);
 
+	rzg2l_wdt_reset(priv);
 	pm_runtime_put(wdev->parent);
-	reset_control_reset(priv->rstc);
 
 	return 0;
 }
 
 static int rzg2l_wdt_set_timeout(struct watchdog_device *wdev, unsigned int timeout)
 {
-	struct rzg2l_wdt_priv *priv = watchdog_get_drvdata(wdev);
-
 	wdev->timeout = timeout;
 
 	/*
 	 * If the watchdog is active, reset the module for updating the WDTSET
-	 * register so that it is updated with new timeout values.
+	 * register by calling rzg2l_wdt_stop() (which internally calls reset_control_reset()
+	 * to reset the module) so that it is updated with new timeout values.
 	 */
 	if (watchdog_active(wdev)) {
-		pm_runtime_put(wdev->parent);
-		reset_control_reset(priv->rstc);
+		rzg2l_wdt_stop(wdev);
 		rzg2l_wdt_start(wdev);
 	}
 
@@ -142,11 +176,30 @@ static int rzg2l_wdt_restart(struct watchdog_device *wdev,
 	clk_prepare_enable(priv->pclk);
 	clk_prepare_enable(priv->osc_clk);
 
-	/* Generate Reset (WDTRSTB) Signal on parity error */
-	rzg2l_wdt_write(priv, 0, PECR);
+	if (priv->devtype == WDT_RZG2L) {
+		/* Generate Reset (WDTRSTB) Signal on parity error */
+		rzg2l_wdt_write(priv, 0, PECR);
 
-	/* Force parity error */
-	rzg2l_wdt_write(priv, PEEN_FORCE, PEEN);
+		/* Force parity error */
+		rzg2l_wdt_write(priv, PEEN_FORCE, PEEN);
+	} else {
+		/* RZ/V2M doesn't have parity error registers */
+		rzg2l_wdt_reset(priv);
+
+		wdev->timeout = 0;
+
+		/* Initialize time out */
+		rzg2l_wdt_init_timeout(wdev);
+
+		/* Initialize watchdog counter register */
+		rzg2l_wdt_write(priv, 0, WDTTIM);
+
+		/* Enable watchdog timer*/
+		rzg2l_wdt_write(priv, WDTCNT_WDTEN, WDTCNT);
+
+		/* Wait 2 consecutive overflow cycles for reset */
+		mdelay(DIV_ROUND_UP(2 * 0xFFFFF * 1000, priv->osc_clk_rate));
+	}
 
 	return 0;
 }
@@ -188,6 +241,7 @@ static int rzg2l_wdt_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct rzg2l_wdt_priv *priv;
 	unsigned long pclk_rate;
+	u32 channel;
 	int ret;
 
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
@@ -227,11 +281,26 @@ static int rzg2l_wdt_probe(struct platform_device *pdev)
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to deassert");
 
+	ret = device_property_read_u32(&pdev->dev, "channel,id", &channel);
+	if (ret)
+		return dev_err_probe(dev, ret, "no channel,id found");
+
+	priv->devtype = (uintptr_t)of_device_get_match_data(dev);
+
+	if (priv->devtype == WDT_RZV2M) {
+		priv->minimum_assertion_period = RZV2M_A_NSEC +
+			3 * F2CYCLE_NSEC(pclk_rate) + 5 *
+			max(F2CYCLE_NSEC(priv->osc_clk_rate),
+			    F2CYCLE_NSEC(pclk_rate));
+	}
+
 	pm_runtime_enable(&pdev->dev);
 
 	priv->wdev.info = &rzg2l_wdt_ident;
 	priv->wdev.ops = &rzg2l_wdt_ops;
 	priv->wdev.parent = dev;
+	priv->wdev.bootstatus = rzg2l_cpg_wdt_ovf_sysrst(__clk_get_hw(priv->pclk), channel) ?
+									WDIOF_CARDRESET : 0;
 	priv->wdev.min_timeout = 1;
 	priv->wdev.max_timeout = rzg2l_wdt_get_cycle_usec(priv->osc_clk_rate, 0xfff) /
 				 USEC_PER_SEC;
@@ -255,7 +324,9 @@ static int rzg2l_wdt_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id rzg2l_wdt_ids[] = {
-	{ .compatible = "renesas,rzg2l-wdt", },
+	{ .compatible = "renesas,rzg2l-wdt", .data = (void *)WDT_RZG2L },
+	{ .compatible = "renesas,rzv2m-wdt", .data = (void *)WDT_RZV2M },
+	{ .compatible = "renesas,rzv2ma-wdt", .data = (void *)WDT_RZV2M },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, rzg2l_wdt_ids);

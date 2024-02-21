@@ -15,6 +15,11 @@
 	aliases {
 		ethernet0 = &avb;
 		serial1 = &scif1;
+		serial2 = &scif2;
+		serial3 = &scif4;
+		serial4 = &scif5;
+		serial5 = &hscif1;
+		serial6 = &hscif2;
 	};
 
 	chosen {
@@ -36,6 +41,15 @@
 	memory@40000000 {
 		device_type = "memory";
 		reg = <0 0x40000000 0 0x20000000>;
+	};
+
+	reg_1p0v: 1p0v {
+		compatible = "regulator-fixed";
+		regulator-name = "1P0V";
+		regulator-min-microvolt = <1000000>;
+		regulator-max-microvolt = <1000000>;
+		regulator-boot-on;
+		regulator-always-on;
 	};
 
 	reg_1p8v: reg-1p8v {
@@ -69,6 +83,10 @@
 	};
 };
 
+&cpu0 {
+	cpu0-supply = <&reg_1p0v>;
+};
+
 &avb {
 	pinctrl-0 = <&avb_pins>;
 	pinctrl-names = "default";
@@ -84,6 +102,13 @@
 		interrupts = <16 IRQ_TYPE_LEVEL_LOW>;
 		micrel,led-mode = <1>;
 	};
+};
+
+&can0 {
+	pinctrl-0 = <&can0_pins>;
+	pinctrl-names = "default";
+	renesas,can-clock-select = <0x0>;
+	status = "okay";
 };
 
 &cmt0 {
@@ -103,6 +128,10 @@
 			};
 		};
 	};
+};
+
+&cmt1 {
+	status = "okay";
 };
 
 &ehci1 {
@@ -171,6 +200,18 @@
 			};
 		};
 	};
+
+	rcar_dvdec@31 {
+		compatible = "rcar-dvdec";
+		reg = <0x31>;
+		clocks = <&cpg CPG_MOD 927>;
+		clock-names = "i2c4";
+		port {
+			dvdec: endpoint {
+				remote-endpoint = <&vin0ep>;
+			};
+		};
+	};
 };
 
 &ohci1 {
@@ -179,13 +220,18 @@
 
 &pfc {
 	avb_pins: avb {
-		groups = "avb_mdio", "avb_gmii_tx_rx";
+		groups = "avb_mdio", "avb_gmii_tx_rx", "avb_phy_int";
 		function = "avb";
 	};
 
 	du0_pins: du0 {
 		groups = "du0_rgb888", "du0_sync", "du0_disp", "du0_clk0_out";
 		function = "du0";
+	};
+
+	can0_pins: can0 {
+		groups = "can0_data_a";
+		function = "can0";
 	};
 
 	i2c4_pins: i2c4 {
@@ -204,14 +250,60 @@
 		power-source = <1800>;
 	};
 
+	msiof2_pins: spi4 {
+		groups = "msiof2_clk_a", "msiof2_sync_a",
+			 "msiof2_ss1_a", "msiof2_rx_a", "msiof2_tx_a";
+		function = "msiof2";
+	};
+
+	pwm0_pins: pwm0 {
+		groups = "pwm0_c";
+		function = "pwm0";
+	};
+
+	pwm2_pins: pwm2 {
+		groups = "pwm2_d";
+		function = "pwm2";
+	};
+
+	pwm6_pins: pwm6 {
+		groups = "pwm6_c";
+		function = "pwm6";
+	};
+
 	qspi0_pins: qspi0 {
 		groups = "qspi0_ctrl", "qspi0_data2";
 		function = "qspi0";
 	};
 
-	scif1_pins: scif1 {
+	scif1_pins: serial1 {
 		groups = "scif1_data_b";
 		function = "scif1";
+	};
+
+	scif2_pins: serial2 {
+		groups = "scif2_data_b";
+		function = "scif2";
+	};
+
+	scif4_pins: serial3 {
+		groups = "scif4_data_b";
+		function = "scif4";
+	};
+
+	scif5_pins: serial4 {
+		groups = "scif5_data_b";
+		function = "scif5";
+	};
+
+	hscif1_pins: serial5 {
+		groups = "hscif1_data", "hscif1_ctrl_a";
+		function = "hscif1";
+	};
+
+	hscif2_pins: serial6 {
+		groups = "hscif2_data", "hscif2_clk", "hscif2_ctrl";
+		function = "hscif2";
 	};
 
 	sdhi2_pins: sd2 {
@@ -235,6 +327,41 @@
 		groups = "usb1";
 		function = "usb1";
 	};
+
+	vin0_pins: vin0 {
+		groups = "vin0_data8", "vin0_sync", "vin0_clkenb", "vin0_clk";
+		function = "vin0";
+	};
+};
+
+&msiof2 {
+	pinctrl-0 = <&msiof2_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	spidev@0 {
+		compatible = "renesas,spidev-r8a77470";
+		reg = <0>;
+		spi-max-frequency = <1000000>;
+	};
+};
+
+&pwm0 {
+	pinctrl-0 = <&pwm0_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&pwm2 {
+	pinctrl-0 = <&pwm2_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&pwm6 {
+	pinctrl-0 = <&pwm6_pins>;
+	pinctrl-names = "default";
+	status = "okay";
 };
 
 &qspi0 {
@@ -247,9 +374,9 @@
 	flash: flash@0 {
 		#address-cells = <1>;
 		#size-cells = <1>;
-		compatible = "issi,is25lp016d", "jedec,spi-nor";
+		compatible = "sst,sst25vf016b", "issi,is25lp016d", "jedec,spi-nor";
 		reg = <0>;
-		spi-max-frequency = <133000000>;
+		spi-max-frequency = <50000000>;
 		spi-tx-bus-width = <1>;
 		spi-rx-bus-width = <1>;
 		m25p,fast-read;
@@ -267,6 +394,44 @@
 	pinctrl-0 = <&scif1_pins>;
 	pinctrl-names = "default";
 
+	status = "okay";
+};
+
+&tmu1 {
+	status = "okay";
+};
+
+&scif2 {
+	pinctrl-0 = <&scif2_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&scif4 {
+	pinctrl-0 = <&scif4_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&scif5 {
+	pinctrl-0 = <&scif5_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&hscif1 {
+	pinctrl-0 = <&hscif1_pins>;
+	pinctrl-names = "default";
+
+	uart-has-rtscts;
+	status = "okay";
+};
+
+&hscif2 {
+	pinctrl-0 = <&hscif2_pins>;
+	pinctrl-names = "default";
+
+	uart-has-rtscts;
 	status = "okay";
 };
 
@@ -292,11 +457,6 @@
 	vqmmc-supply = <&vccq_sdhi2>;
 	bus-width = <4>;
 	cd-gpios = <&gpio4 20 GPIO_ACTIVE_LOW>;
-	sd-uhs-sdr50;
-	status = "okay";
-};
-
-&usb2_phy0 {
 	status = "okay";
 };
 
@@ -305,10 +465,10 @@
 };
 
 &usbphy0 {
-	pinctrl-0 = <&usb0_pins>;
-	pinctrl-names = "default";
-
 	status = "okay";
+	renesas,id-gpio = <&gpio0 1 GPIO_ACTIVE_LOW>;
+	renesas,vbus-pwr-gpio = <&gpio0 0 GPIO_ACTIVE_LOW>;
+	renesas,wakeup;
 };
 
 &usbphy1 {
@@ -316,4 +476,19 @@
 	pinctrl-names = "default";
 
 	status = "okay";
+};
+
+&vin0 {
+	status = "okay";
+	pinctrl-0 = <&vin0_pins>;
+	pinctrl-names = "default";
+
+	port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		vin0ep: endpoint {
+			remote-endpoint = <&dvdec>;
+		};
+	};
 };

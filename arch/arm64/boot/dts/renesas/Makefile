@@ -85,11 +85,21 @@ dtb-$(CONFIG_ARCH_R8A77995) += r8a77995-draak.dtb
 dtb-$(CONFIG_ARCH_R8A779A0) += r8a779a0-falcon.dtb
 
 dtb-$(CONFIG_ARCH_R9A07G043) += r9a07g043u11-smarc.dtb
+dtb-$(CONFIG_ARCH_R9A07G043) += r9a07g043u11-dev.dtb
+
 dtb-$(CONFIG_ARCH_R9A07G044) += r9a07g044c2-smarc.dtb
+dtb-$(CONFIG_ARCH_R9A07G044) += r9a07g044c2-dev.dtb
 dtb-$(CONFIG_ARCH_R9A07G044) += r9a07g044l2-smarc.dtb
 dtb-$(CONFIG_ARCH_R9A07G044) += r9a07g044l2-dev.dtb
-dtb-$(CONFIG_ARCH_R9A07G044) += rzg2l-calixto-versa.dtb
-dtb-$(CONFIG_ARCH_R9A07G044) += rzg2l-calixto-optima.dtb
+dtb-$(CONFIG_ARCH_R9A07G044) += rzv2l-calixto-versa.dtb
+dtb-$(CONFIG_ARCH_R9A07G044) += rzv2l-calixto-versa_1GB.dtb
+dtb-$(CONFIG_ARCH_R9A07G044) += rzv2l-calixto-versa_2GB.dtb
 
 dtb-$(CONFIG_ARCH_R9A07G054) += r9a07g054l2-smarc.dtb
-dtb-$(CONFIG_ARCH_R9A07G054) += r9a07g054l2-dev.dtb
+dtb-$(CONFIG_ARCH_R9A07G044) += r9a07g054l2-dev.dtb
+dtb-$(CONFIG_ARCH_R9A07G044) += rzv2l-calixto-optima.dtb
+dtb-$(CONFIG_ARCH_R9A07G044) += rzv2l-calixto-optima_1GB.dtb
+dtb-$(CONFIG_ARCH_R9A07G044) += rzv2l-calixto-optima_2GB.dtb
+
+dtb-$(CONFIG_ARCH_R9A09G011) += r9a09g011-v2mevk2.dtb
+dtb-$(CONFIG_ARCH_R9A09G055) += r9a09g055-v2maevk2.dtb

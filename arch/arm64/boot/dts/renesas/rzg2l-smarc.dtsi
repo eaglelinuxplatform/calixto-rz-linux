@@ -13,14 +13,60 @@
 
 / {
 	aliases {
-#if (PMOD1_SER0 && !MTU3_PHASE_COUNTING_SUPPORT)
 		serial1 = &scif2;
-#endif
+		i2c3 = &i2c3;
 	};
 
 	sound_card {
 		compatible = "audio-graph-card";
 		dais = <&i2s2_port0>;
+	};
+
+	x1_clk: x1-clock {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <24000000>;
+	};
+};
+
+&cpu_dai {
+	sound-dai = <&ssi0>;
+};
+
+&codec_dai {
+	clocks = <&versa3 3>;
+};
+
+&i2c3 {
+	pinctrl-0 = <&i2c3_pins>;
+	pinctrl-names = "default";
+	clock-frequency = <400000>;
+
+	status = "okay";
+
+	versa3: versa3@68 {
+		compatible = "renesas,5p35023";
+		reg = <0x68>;
+		#clock-cells = <1>;
+		clocks = <&x1_clk>;
+		clock-names = "x1";
+		assigned-clocks = <&versa3 0>,
+				   <&versa3 1>,
+				   <&versa3 2>,
+				   <&versa3 3>,
+				   <&versa3 4>,
+				   <&versa3 5>;
+		assigned-clock-rates =	<12288000>, <25000000>,
+					<12000000>, <11289600>,
+					<11289600>, <24000000>;
+		clock-divider-read-only = <1>, <1>, <1>, <1>, <1>;
+		clock-flags = <2176>, <2176>, <2176>, <2052>, <2176>, <2048>;
+	};
+
+	wm8978: codec@1a {
+		compatible = "wlf,wm8978";
+		#sound-dai-cells = <0>;
+		reg = <0x1a>;
 	};
 };
 
@@ -31,7 +77,7 @@
  * SW3 should be at position 2->3 so that SER0_RX line is activated
  * SW4 should be at position 2->3 so that SER0_RTS# line is activated
  */
-#if (PMOD1_SER0 && !MTU3_PHASE_COUNTING_SUPPORT)
+#if PMOD1_SER0
 &scif2 {
 	pinctrl-0 = <&scif2_pins>;
 	pinctrl-names = "default";
@@ -40,6 +86,13 @@
 	status = "okay";
 };
 #endif
+
+&ssi0 {
+	pinctrl-0 = <&ssi0_pins>;
+	pinctrl-names = "default";
+
+	status = "okay";
+};
 
 &ssi1 {
 	pinctrl-0 = <&ssi1_pins>;
@@ -55,6 +108,10 @@
 			};
 		};
 	};
+};
+
+&vccq_sdhi1 {
+	gpios = <&pinctrl RZG2L_GPIO(39, 1) GPIO_ACTIVE_HIGH>;
 };
 
 &ov5645 {

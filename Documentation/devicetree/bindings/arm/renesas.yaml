@@ -309,9 +309,17 @@ properties:
       - description: RZ/G2UL (R9A07G043)
         items:
           - enum:
+              - renesas,smarc-evk # SMARC EVK
+          - enum:
               - renesas,r9a07g043u11 # RZ/G2UL Type-1
               - renesas,r9a07g043u12 # RZ/G2UL Type-2
           - const: renesas,r9a07g043
+
+      - description: RZ/Five (R9A07G043F)
+        items:
+          - enum:
+              - renesas,r9a07g043f-smarc # RZ/Five SMARC EVK
+          - const: renesas,r9a07g043f
 
       - description: RZ/G2{L,LC} (R9A07G044)
         items:
@@ -323,6 +331,21 @@ properties:
               - renesas,r9a07g044l1 # Single Cortex-A55 RZ/G2L
               - renesas,r9a07g044l2 # Dual Cortex-A55 RZ/G2L
           - const: renesas,r9a07g044
+
+      - description: RZ/V2L (R9A07G054)
+        items:
+          - enum:
+              - renesas,smarc-evk # SMARC EVK
+          - enum:
+              - renesas,r9a07g054l1 # Single Cortex-A55 RZ/V2L
+              - renesas,r9a07g054l2 # Dual Cortex-A55 RZ/V2L
+          - const: renesas,r9a07g054
+
+      - description: RZ/V2M (R9A09G011)
+        items:
+          - enum:
+              - renesas,rzv2mevk2   # RZ/V2M Eval Board v2.0
+          - const: renesas,r9a09g011
 
 additionalProperties: true
 

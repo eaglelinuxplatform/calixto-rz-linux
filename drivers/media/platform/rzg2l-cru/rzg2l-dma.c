@@ -88,17 +88,55 @@
 #define AMnAXISTPACK			0x178
 #define AMnAXISTPACK_AXI_STOP_ACK	BIT(0)
 
+/* Memory Bank Base Address (Lower) Register for CRU Statistics Data */
+#define AMnSDMBxADDRL(x)		(0x190 + ((x) * 8))
+
+/* Memory Bank Base Address (Higher) Register for CRU Statistics Data */
+#define AMnSDMBxADDRH(x)		(0x194 + ((x) * 8))
+
+/* Memory Bank Enable Register for CRU Image Data */
+#define AMnSDMBVALID			0x1D0
+#define AMnSDMBVALID_SDMBVALID(x)	GENMASK(x, 0)
+
+/* Memory Bank Status Register for CRU Image Data */
+#define AMnSDMBS			0x1D4
+#define AMnSDMBS_SDMBSTS		0x7
+
+/* AXI Master Transfer Constant Register for CRU Statistics data */
+#define AMnSDAXIATTR			0x1D8
+#define AMnSDAXIATTR_SDAXILEN(x)	(x)
+
+/* AXI Master FIFO Pointer Register for CRU Statistics Data */
+#define AMnSDFIFOPNTR			0x1E8
+#define AMnSDFIFOPNTR_SDFIFOWPNTR	GENMASK(4, 0)
+#define AMnSDFIFOPNTR_SDFIFORPNTR	GENMASK(20, 16)
+
+/* AXI Master Transfer Stop Register for CRU Image Data */
+#define AMnSDAXISTP			0x1F4
+#define AMnSDAXISTP_SDAXI_STOP		BIT(0)
+
+/* AXI Master Transfer Stop Status Register for CRU Image Data */
+#define AMnSDAXISTPACK			0x1F8
+#define AMnSDAXISTPACK_SDAXI_STOP_ACK	BIT(0)
+
 /* CRU Image Processing Enable Register */
 #define ICnEN				0x200
 #define ICnEN_ICEN			BIT(0)
+
+/* CRU Image Processing Register Setting Change Control Register */
+#define ICnREGC				0x204
+#define ICnREGC_REFEN			BIT(0)
 
 /* CRU Image Processing Main Control Register */
 #define ICnMC				0x208
 #define ICnMC_ICTHR			BIT(0)
 #define ICnMC_DECTHR			BIT(1)
 #define ICnMC_CLPTHR			BIT(2)
+#define ICnMC_DEMTHR			BIT(3)
+#define ICnMC_LMXTHR			BIT(4)
 #define ICnMC_CSCTHR			BIT(5)
 #define ICnMC_LUTTHR			(0 << 6)
+#define ICnMC_STITHR			BIT(7)
 #define ICnMC_CLP_NOY_CLPUV		(0 << 12)
 #define ICnMC_CLP_YUV			(1 << 12)
 #define ICnMC_CLP_NOY_CLPUV_128		(2 << 12)
@@ -119,6 +157,11 @@
 #define ICnMC_INF_USER			(0x30 << 16)
 #define ICnMC_VCSEL(x)			((x) << 22)
 #define ICnMC_INF_MASK			GENMASK(21, 16)
+#define ICnMC_RAWSTTYP_RGRG		0
+#define ICnMC_RAWSTTYP_GRGR		BIT(24)
+#define ICnMC_RAWSTTYP_GBGB		BIT(25)
+#define ICnMC_RAWSTTYP_BGBG		(BIT(25) | BIT(24))
+#define ICnMC_RAWSTTYP_MASK		(BIT(25) | BIT(24))
 
 /* CRU Image Clipping Start Line Register */
 #define ICnSLPrC			0x210
@@ -131,6 +174,49 @@
 
 /* CRU Image Clipping End Pixel Register */
 #define ICnEPPrC			0x21C
+
+/* CRU Linear Matrix Offset register */
+#define ICnLMXOF			0x224
+#define ICnLMXOF_ROF(x)			(((x) & GENMASK(7, 0)) << 0)
+#define ICnLMXOF_GOF(x)			(((x) & GENMASK(7, 0)) << 8)
+#define ICnLMXOF_BOF(x)			(((x) & GENMASK(7, 0)) << 16)
+
+/* CRU Linear Matrix R Coefficient 1 Register */
+#define ICnLMXRC1			0x228
+#define ICnLMXRC1_RR(x)			(((x) & GENMASK(12, 0)) << 0)
+
+/* CRU Linear Matrix R Coefficient 2 Register */
+#define ICnLMXRC2			0x22C
+#define ICnLMXRC2_RG(x)			(((x) & GENMASK(12, 0)) << 0)
+#define ICnLMXRC2_RB(x)			(((x) & GENMASK(12, 0)) << 16)
+
+/* CRU Linear Matrix G Coefficient 1 Register */
+#define ICnLMXGC1			0x230
+#define ICnLMXGC1_GR(x)			(((x) & GENMASK(12, 0)) << 0)
+
+/* CRU Linear Matrix G Coefficient 2 Register */
+#define ICnLMXGC2			0x234
+#define ICnLMXGC2_GG(x)			(((x) & GENMASK(12, 0)) << 0)
+#define ICnLMXGC2_GB(x)			(((x) & GENMASK(12, 0)) << 16)
+
+/* CRU Linear Matrix B Coefficient 1 Register */
+#define ICnLMXBC1			0x238
+#define ICnLMXBC1_BR(x)			(((x) & GENMASK(12, 0)) << 0)
+
+/* CRU Linear Matrix B Coefficient 2 Register */
+#define ICnLMXBC2			0x23C
+#define ICnLMXBC2_BG(x)			(((x) & GENMASK(12, 0)) << 0)
+#define ICnLMXBC2_BB(x)			(((x) & GENMASK(12, 0)) << 16)
+
+/* CRU Statistics Control 1 Register */
+#define ICnSTIC1			0x240
+#define ICnSTIC1_STUNIT_MASK		0x3
+#define ICnSTIC1_STUNIT(x)		(x)
+#define ICnSTIC1_STSADPOS(x)		((x) << 16)
+
+/* CRU Statistics Control 2 Register */
+#define ICnSTIC2			0x244
+#define ICnSTIC2_STHPOS(x)		(x)
 
 /* CRU Parallel I/F Control Register */
 #define ICnPIFC				0x250
@@ -210,6 +296,8 @@ struct rzg2l_cru_buffer {
 static int sensor_stop_try;
 static int prev_slot;
 static int frame_skip;
+static u32 amnmbxaddrl[HW_BUFFER_MAX];
+static u32 amnmbxaddrh[HW_BUFFER_MAX];
 
 #define to_buf_list(vb2_buffer) (&container_of(vb2_buffer, \
 						struct rzg2l_cru_buffer, \
@@ -223,6 +311,32 @@ static void rzg2l_cru_write(struct rzg2l_cru_dev *cru, u32 offset, u32 value)
 static u32 rzg2l_cru_read(struct rzg2l_cru_dev *cru, u32 offset)
 {
 	return ioread32(cru->base + offset);
+}
+
+static void rzg2l_cru_linear_setting(struct rzg2l_cru_dev *cru)
+{
+	rzg2l_cru_write(cru, ICnLMXOF,
+			ICnLMXOF_ROF(cru->linear_matrix_rgb_offset[0]) |
+			ICnLMXOF_GOF(cru->linear_matrix_rgb_offset[1]) |
+			ICnLMXOF_BOF(cru->linear_matrix_rgb_offset[2]));
+
+	rzg2l_cru_write(cru, ICnLMXRC1,
+			ICnLMXRC1_RR(cru->linear_matrix_r[0]));
+	rzg2l_cru_write(cru, ICnLMXRC2,
+			ICnLMXRC2_RG(cru->linear_matrix_r[1]) |
+			ICnLMXRC2_RB(cru->linear_matrix_r[2]));
+
+	rzg2l_cru_write(cru, ICnLMXGC1,
+			ICnLMXGC1_GR(cru->linear_matrix_g[0]));
+	rzg2l_cru_write(cru, ICnLMXGC2,
+			ICnLMXGC2_GG(cru->linear_matrix_g[1]) |
+			ICnLMXGC2_GB(cru->linear_matrix_g[2]));
+
+	rzg2l_cru_write(cru, ICnLMXBC1,
+			ICnLMXBC1_BR(cru->linear_matrix_b[0]));
+	rzg2l_cru_write(cru, ICnLMXBC2,
+			ICnLMXBC2_BG(cru->linear_matrix_b[1]) |
+			ICnLMXBC2_BB(cru->linear_matrix_b[2]));
 }
 
 /* Need to hold qlock before calling */
@@ -406,9 +520,18 @@ static void rzg2l_cru_set_slot_addr(struct rzg2l_cru_dev *cru,
 	if (WARN_ON((offsetx | offsety | offset) & HW_BUFFER_MASK))
 		return;
 
-	/* Currently, we just use the buffer in 32 bits address */
-	rzg2l_cru_write(cru, AMnMBxADDRL(slot), offset);
-	rzg2l_cru_write(cru, AMnMBxADDRH(slot), 0);
+	rzg2l_cru_write(cru, AMnMBxADDRL(slot), lower_32_bits(offset));
+	rzg2l_cru_write(cru, AMnMBxADDRH(slot), upper_32_bits(offset));
+
+	/* Statistic data memory address is located next to Image data area */
+	if (cru->is_statistics) {
+		offset = offset + cru->format.bytesperline * cru->format.height;
+
+		rzg2l_cru_write(cru, AMnSDMBxADDRL(slot),
+				lower_32_bits(offset));
+		rzg2l_cru_write(cru, AMnSDMBxADDRH(slot),
+				upper_32_bits(offset));
+	}
 }
 
 /*
@@ -456,8 +579,31 @@ static void rzg2l_cru_initialize_axi(struct rzg2l_cru_dev *cru)
 	 */
 	rzg2l_cru_write(cru, AMnMBVALID, AMnMBVALID_MBVALID(cru->num_buf - 1));
 
-	for (slot = 0; slot < cru->num_buf; slot++)
-		rzg2l_cru_fill_hw_slot(cru, slot);
+	/* Set Statistics data memory banks */
+	if (cru->is_statistics)
+		rzg2l_cru_write(cru, AMnSDMBVALID,
+				AMnSDMBVALID_SDMBVALID(cru->num_buf - 1));
+
+	if (cru->retry_thread) {
+		for (slot = 0; slot < cru->num_buf; slot++) {
+			rzg2l_cru_write(cru, AMnMBxADDRL(slot),
+					amnmbxaddrl[slot]);
+			rzg2l_cru_write(cru, AMnMBxADDRH(slot),
+					amnmbxaddrh[slot]);
+
+			if (cru->is_statistics) {
+				rzg2l_cru_write(cru, AMnSDMBxADDRL(slot),
+						amnmbxaddrl[slot] +
+						cru->format.bytesperline *
+						cru->format.height);
+				rzg2l_cru_write(cru, AMnSDMBxADDRH(slot),
+						amnmbxaddrh[slot]);
+			}
+		}
+	} else {
+		for (slot = 0; slot < cru->num_buf; slot++)
+			rzg2l_cru_fill_hw_slot(cru, slot);
+	}
 }
 
 static void rzg2l_cru_csi2_setup(struct rzg2l_cru_dev *cru)
@@ -636,7 +782,7 @@ static void rzg2l_cru_parallel_setup(struct rzg2l_cru_dev *cru)
 
 static int rzg2l_cru_initialize_image_conv(struct rzg2l_cru_dev *cru)
 {
-	u32 icndmr;
+	u32 icndmr, icnmc;
 
 	/* Currently we do not support:
 	 * - Frame subsampling
@@ -738,20 +884,123 @@ static int rzg2l_cru_initialize_image_conv(struct rzg2l_cru_dev *cru)
 	}
 
 	/*
-	 * CRU can perform colorspace conversion: YUV <=> RGB.
-	 * If other formats, do bypass mode.
+	 * CRU can perform:
+	 * - Colorspace coversion: YUV <=> RGB.
+	 * - Demosaicing from RAW data to RGB.
+	 * To output YUV color format from RAW data input, we must process
+	 * demosaicing and colorspace conversion.
+	 * Do bypass mode for the remained mode.
 	 */
+	icnmc = rzg2l_cru_read(cru, ICnMC);
 	if (cru->output_fmt == cru->input_fmt)
-		rzg2l_cru_write(cru, ICnMC,
-				rzg2l_cru_read(cru, ICnMC) | ICnMC_CSCTHR);
+		rzg2l_cru_write(cru, ICnMC, icnmc | ICnMC_CSCTHR |
+				ICnMC_DEMTHR);
 	else if (((cru->output_fmt == YUV) && (cru->input_fmt == RGB)) ||
 		 ((cru->output_fmt == RGB) && (cru->input_fmt == YUV)))
 		rzg2l_cru_write(cru, ICnMC,
-				rzg2l_cru_read(cru, ICnMC) & (~ICnMC_CSCTHR));
+				(icnmc | ICnMC_DEMTHR) & ~ICnMC_CSCTHR);
+	else if ((cru->input_fmt == BAYER_RAW) && (cru->output_fmt == RGB))
+		rzg2l_cru_write(cru, ICnMC, icnmc & ~ICnMC_DEMTHR);
+	else if ((cru->input_fmt == BAYER_RAW) && (cru->output_fmt == YUV))
+		rzg2l_cru_write(cru, ICnMC, icnmc &
+				~(ICnMC_CSCTHR | ICnMC_DEMTHR));
 	else {
 		cru_err(cru, "Not support color space conversion for (0x%x)\n",
 			cru->format.pixelformat);
 		return -ENOEXEC;
+	}
+
+	icnmc = rzg2l_cru_read(cru, ICnMC);
+	if (!(icnmc & ICnMC_DEMTHR)) {
+		icnmc &= ~ICnMC_RAWSTTYP_MASK;
+
+		switch (cru->mbus_code) {
+		case MEDIA_BUS_FMT_SRGGB8_1X8:
+		case MEDIA_BUS_FMT_SRGGB10_1X10:
+		case MEDIA_BUS_FMT_SRGGB12_1X12:
+		case MEDIA_BUS_FMT_SRGGB14_1X14:
+		case MEDIA_BUS_FMT_SRGGB16_1X16:
+			rzg2l_cru_write(cru, ICnMC, icnmc |
+					ICnMC_RAWSTTYP_RGRG);
+			break;
+		case MEDIA_BUS_FMT_SGRBG8_1X8:
+		case MEDIA_BUS_FMT_SGRBG10_1X10:
+		case MEDIA_BUS_FMT_SGRBG12_1X12:
+		case MEDIA_BUS_FMT_SGRBG14_1X14:
+		case MEDIA_BUS_FMT_SGRBG16_1X16:
+			rzg2l_cru_write(cru, ICnMC, icnmc |
+					ICnMC_RAWSTTYP_GRGR);
+			break;
+		case MEDIA_BUS_FMT_SGBRG8_1X8:
+		case MEDIA_BUS_FMT_SGBRG10_1X10:
+		case MEDIA_BUS_FMT_SGBRG12_1X12:
+		case MEDIA_BUS_FMT_SGBRG14_1X14:
+		case MEDIA_BUS_FMT_SGBRG16_1X16:
+			rzg2l_cru_write(cru, ICnMC, icnmc |
+					ICnMC_RAWSTTYP_GBGB);
+			break;
+		case MEDIA_BUS_FMT_SBGGR8_1X8:
+		case MEDIA_BUS_FMT_SBGGR10_1X10:
+		case MEDIA_BUS_FMT_SBGGR12_1X12:
+		case MEDIA_BUS_FMT_SBGGR14_1X14:
+		case MEDIA_BUS_FMT_SBGGR16_1X16:
+			rzg2l_cru_write(cru, ICnMC, icnmc |
+					ICnMC_RAWSTTYP_BGBG);
+			break;
+		default:
+			break;
+		}
+	}
+
+	/* Statistics Data can be enabled if input format is BAYER RAW */
+	if (cru->is_statistics) {
+		u32 icnstic1, icnstic2;
+		int tmp;
+
+		if (cru->input_fmt == BAYER_RAW)
+			rzg2l_cru_write(cru, ICnMC,
+				rzg2l_cru_read(cru, ICnMC) & ~ICnMC_STITHR);
+		else
+			return -EINVAL;
+
+		/*
+		 * Validate condition about STHPOS and STUNIT based on formula:
+		 * ((HSIZE-STHPOS)>>(4+STUNIT)) * (VSIZE>>(4+STUNIT)) * 4 > 512
+		 * before setting control for Statistics Data
+		 */
+		tmp = (cru->format.height - cru->sd_sthpos);
+		tmp >>= (4 + cru->sd_blksize);
+		tmp *= (cru->format.width >> (4 + cru->sd_blksize)) * 4;
+
+		if (tmp > 512) {
+			icnstic1 = ICnSTIC1_STUNIT(cru->sd_blksize) |
+				   ICnSTIC1_STSADPOS(cru->sd_stsadpos);
+			icnstic2 = ICnSTIC2_STHPOS(cru->sd_sthpos);
+
+			rzg2l_cru_write(cru, ICnSTIC1, icnstic1);
+			rzg2l_cru_write(cru, ICnSTIC2, icnstic2);
+		} else {
+			cru_err(cru, "Invalid STUNIT and STHPOS setting");
+			return -EINVAL;
+		}
+
+	} else {
+		rzg2l_cru_write(cru, ICnMC,
+				rzg2l_cru_read(cru, ICnMC) | ICnMC_STITHR);
+	}
+
+	/* Linear Matrix Processing support */
+	if (((cru->input_fmt == RGB) || (cru->input_fmt == BAYER_RAW)) &&
+	     (cru->is_linear_matrix_enable)) {
+		rzg2l_cru_write(cru, ICnMC,
+				rzg2l_cru_read(cru, ICnMC) & (~ICnMC_LMXTHR));
+
+		rzg2l_cru_linear_setting(cru);
+		rzg2l_cru_write(cru, ICnREGC, ICnREGC_REFEN);
+	} else {
+		rzg2l_cru_write(cru, ICnMC,
+				rzg2l_cru_read(cru, ICnMC) | ICnMC_LMXTHR);
+		rzg2l_cru_write(cru, ICnREGC, 0);
 	}
 
 	/* Set output data format */
@@ -760,35 +1009,9 @@ static int rzg2l_cru_initialize_image_conv(struct rzg2l_cru_dev *cru)
 	return 0;
 }
 
-static int rzg2l_cru_set_stream(struct rzg2l_cru_dev *cru, int on)
+static int rzg2l_cru_start(struct rzg2l_cru_dev *cru, struct v4l2_subdev *sd)
 {
-	struct media_pipeline *pipe;
-	struct v4l2_subdev *sd;
-	struct media_pad *pad;
 	int ret;
-	unsigned long flags;
-
-	pad = media_entity_remote_pad(&cru->pad);
-	if (!pad)
-		return -EPIPE;
-
-	sd = media_entity_to_v4l2_subdev(pad->entity);
-
-	if (!on) {
-		media_pipeline_stop(&cru->vdev.entity);
-		return v4l2_subdev_call(sd, video, s_stream, 0);
-	}
-
-	ret = rzg2l_cru_mc_validate_format(cru, sd, pad);
-	if (ret)
-		return ret;
-
-	pipe = sd->entity.pipe ? sd->entity.pipe : &cru->vdev.pipe;
-	ret = __media_pipeline_start(&cru->vdev.entity, pipe);
-	if (ret)
-		return ret;
-
-	spin_lock_irqsave(&cru->qlock, flags);
 
 	/* Select a video input */
 	if (cru->is_csi) {
@@ -814,7 +1037,6 @@ static int rzg2l_cru_set_stream(struct rzg2l_cru_dev *cru, int on)
 	/* Initialize image convert */
 	ret = rzg2l_cru_initialize_image_conv(cru);
 	if (ret) {
-		spin_unlock_irqrestore(&cru->qlock, flags);
 		return ret;
 	}
 
@@ -824,7 +1046,50 @@ static int rzg2l_cru_set_stream(struct rzg2l_cru_dev *cru, int on)
 	/* Enable AXI master & image_conv reception */
 	rzg2l_cru_write(cru, ICnEN, ICnEN_ICEN);
 
+	return 0;
+}
+
+static int rzg2l_cru_set_stream(struct rzg2l_cru_dev *cru, int on)
+{
+	struct media_pipeline *pipe;
+	struct v4l2_subdev *sd;
+	struct media_pad *pad;
+	int ret, i;
+	unsigned long flags;
+
+	pad = media_entity_remote_pad(&cru->pad);
+	if (!pad)
+		return -EPIPE;
+
+	sd = media_entity_to_v4l2_subdev(pad->entity);
+
+	if (!on) {
+		media_pipeline_stop(&cru->vdev.entity);
+		return v4l2_subdev_call(sd, video, s_stream, 0);
+	}
+
+	ret = rzg2l_cru_mc_validate_format(cru, sd, pad);
+	if (ret)
+		return ret;
+
+	pipe = sd->entity.pipe ? sd->entity.pipe : &cru->vdev.pipe;
+	ret = __media_pipeline_start(&cru->vdev.entity, pipe);
+	if (ret)
+		return ret;
+
+	spin_lock_irqsave(&cru->qlock, flags);
+
+	ret = rzg2l_cru_start(cru, sd);
+
+	for (i = 0; i < cru->num_buf; i++) {
+		amnmbxaddrl[i] = rzg2l_cru_read(cru, AMnMBxADDRL(i));
+		amnmbxaddrh[i] = rzg2l_cru_read(cru, AMnMBxADDRH(i));
+	}
+
 	spin_unlock_irqrestore(&cru->qlock, flags);
+
+	if (ret)
+		return ret;
 
 	ret = v4l2_subdev_call(sd, video, s_stream, 1);
 	if (ret == -ENOIOCTLCMD)
@@ -834,24 +1099,14 @@ static int rzg2l_cru_set_stream(struct rzg2l_cru_dev *cru, int on)
 
 	return ret;
 }
-
-static void rzg2l_cru_stop_streaming(struct vb2_queue *vq)
+static void rzg2l_cru_stop(struct rzg2l_cru_dev *cru)
 {
-	struct rzg2l_cru_dev *cru = vb2_get_drv_priv(vq);
-	unsigned long flags;
 	int retries = 0;
 	u32 icnms;
 	u32 amnfifopntr, amnfifopntr_w, amnfifopntr_r_y, amnfifopntr_r_uv;
-
-	cru->state = STOPPING;
-
-	/* Stop the operation of image conversion */
-	rzg2l_cru_write(cru, ICnEN, 0);
-
-	rzg2l_cru_set_stream(cru, 0);
+	unsigned long flags;
 
 	spin_lock_irqsave(&cru->qlock, flags);
-
 	if (!(cru->is_csi)) {
 		/* Enable IRQ to detect frame start reception */
 		rzg2l_cru_write(cru, CRUnIE, CRUnIE_SFE);
@@ -862,7 +1117,6 @@ static void rzg2l_cru_stop_streaming(struct vb2_queue *vq)
 			msleep(100);
 			spin_lock_irqsave(&cru->qlock, flags);
 		}
-
 	}
 
 	/* Disable and clear the interrupt */
@@ -910,9 +1164,6 @@ static void rzg2l_cru_stop_streaming(struct vb2_queue *vq)
 	if (!retries)
 		cru_err(cru, "Failed to empty FIFO\n");
 
-	/* Release all active buffers */
-	return_all_buffers(cru, VB2_BUF_STATE_ERROR);
-
 	/* Stop AXI bus */
 	rzg2l_cru_write(cru, AMnAXISTP, AMnAXISTP_AXI_STOP);
 
@@ -932,6 +1183,46 @@ static void rzg2l_cru_stop_streaming(struct vb2_queue *vq)
 	/* Cancel the AXI bus stop request */
 	rzg2l_cru_write(cru, AMnAXISTP, 0);
 
+	/* Stop AXI bus for Statistic Data */
+	if (cru->is_statistics) {
+		u32 amnsdfifopntr, amnsdfifopntr_w, amnsdfifopntr_r;
+
+		/* Wait until the FIFO becomes empty */
+		for (retries = 5; retries > 0; retries--) {
+			amnsdfifopntr = rzg2l_cru_read(cru, AMnSDFIFOPNTR);
+			amnsdfifopntr_w = amnfifopntr & AMnSDFIFOPNTR_SDFIFOWPNTR;
+			amnsdfifopntr_r = (amnfifopntr & AMnSDFIFOPNTR_SDFIFORPNTR) >> 16;
+
+			if (amnsdfifopntr_w == amnsdfifopntr_r)
+				break;
+
+			udelay(10);
+		}
+
+		/* Notify that FIFO is not empty here */
+		if (!retries)
+			cru_err(cru, "Failed to empty FIFO for Statistics\n");
+
+		/* Stop AXI bus */
+		rzg2l_cru_write(cru, AMnSDAXISTP, AMnSDAXISTP_SDAXI_STOP);
+
+		/* Wait until the AXI bus stop */
+		for (retries = 5; retries > 0; retries--) {
+			if (rzg2l_cru_read(cru, AMnSDAXISTPACK) &
+					   AMnSDAXISTPACK_SDAXI_STOP_ACK)
+				break;
+
+			udelay(10);
+		};
+
+		/* Notify that AXI bus can not stop here */
+		if (!retries)
+			cru_err(cru, "Failed to stop AXI bus for Statistics\n");
+
+		/* Cancel the AXI bus stop request */
+		rzg2l_cru_write(cru, AMnSDAXISTP, 0);
+	}
+
 	/* Set reset state */
 	reset_control_assert(cru->rstc.aresetn);
 
@@ -941,10 +1232,94 @@ static void rzg2l_cru_stop_streaming(struct vb2_queue *vq)
 	reset_control_assert(cru->rstc.presetn);
 
 	spin_unlock_irqrestore(&cru->qlock, flags);
+}
+
+static void rzg2l_cru_stop_streaming(struct vb2_queue *vq)
+{
+	struct rzg2l_cru_dev *cru = vb2_get_drv_priv(vq);
+
+	cru->state = STOPPING;
+
+	if (cru->retry_thread)
+		kthread_stop(cru->retry_thread);
+
+	/* Stop the operation of image conversion */
+	rzg2l_cru_write(cru, ICnEN, 0);
+
+	rzg2l_cru_set_stream(cru, 0);
+
+	rzg2l_cru_stop(cru);
+
+	/* Release all active buffers */
+	return_all_buffers(cru, VB2_BUF_STATE_ERROR);
 
 	/* Free scratch buffer */
 	dma_free_coherent(cru->dev, cru->format.sizeimage, cru->scratch,
 			  cru->scratch_phys);
+}
+
+static int retry_streaming_func(void *data)
+{
+	struct rzg2l_cru_dev *cru = (struct rzg2l_cru_dev *) data;
+	struct v4l2_subdev *sd;
+	struct media_pad *pad;
+	int ret;
+	int retry = 0;
+	int i;
+
+	pad = media_entity_remote_pad(&cru->pad);
+	if (!pad)
+		return -EPIPE;
+	sd = media_entity_to_v4l2_subdev(pad->entity);
+
+	while (retry < 5) {
+		for (i = 0; i < 10; i++) {
+			if (cru->state == RUNNING)
+				goto retry_done;
+
+			msleep(50);
+		}
+
+		/* Stop CRU reception */
+		rzg2l_cru_write(cru, ICnEN, 0);
+		v4l2_subdev_call(sd, video, s_stream, 0);
+		rzg2l_cru_stop(cru);
+		pm_runtime_put(cru->dev);
+
+		msleep(20);
+
+		cru->state = STARTING;
+
+		pm_runtime_get_sync(cru->dev);
+
+		/* Release reset state */
+		reset_control_deassert(cru->rstc.presetn);
+		reset_control_deassert(cru->rstc.aresetn);
+
+		msleep(20);
+
+		ret = rzg2l_cru_start(cru, sd);
+		if (ret)
+			goto retry_done;
+
+		ret = v4l2_subdev_call(sd, video, s_stream, 1);
+		if (ret == -ENOIOCTLCMD)
+			ret = 0;
+		if (ret)
+			goto retry_done;
+
+		retry++;
+
+		cru_info(cru, "CRU retry init: %d times", retry);
+	}
+
+	cru_err(cru, "Please retry due to no input signal after %d retries",
+		retry);
+
+retry_done:
+	cru->retry_thread = NULL;
+
+	return 0;
 }
 
 static int rzg2l_cru_start_streaming(struct vb2_queue *vq, unsigned int count)
@@ -981,11 +1356,26 @@ static int rzg2l_cru_start_streaming(struct vb2_queue *vq, unsigned int count)
 		goto out;
 	}
 
-
 	cru->state = STARTING;
 
 	/* Initialize value of previous memory bank slot before streaming */
 	prev_slot = -1;
+
+	/*
+	 * Workaround to start a thread to restart CRU processing flow
+	 * if there is no input to CRU while using MIPI CSI2.
+	 */
+	if (cru->is_csi) {
+		cru->retry_thread = kthread_create(retry_streaming_func, cru,
+						   "CRU retry thread");
+		if (IS_ERR(cru->retry_thread)) {
+			ret = PTR_ERR(cru->retry_thread);
+			cru->retry_thread = NULL;
+			goto out;
+		}
+
+		wake_up_process(cru->retry_thread);
+	}
 
 	cru_dbg(cru, "Starting to capture\n");
 
@@ -1103,6 +1493,12 @@ static irqreturn_t rzg2l_cru_irq(int irq, void *data)
 			sensor_stop_try++;
 
 		goto done;
+	}
+
+	/* Support realtime update for Linear Matrix setting */
+	if (!(rzg2l_cru_read(cru, ICnMC) & ICnMC_LMXTHR)) {
+		rzg2l_cru_linear_setting(cru);
+		rzg2l_cru_write(cru, ICnREGC, ICnREGC_REFEN);
 	}
 
 	/* Prepare for capture and update state */

@@ -317,7 +317,36 @@ config ARCH_R9A07G054
 	help
 	  This enables support for the Renesas RZ/V2L SoC variants.
 
+config ARCH_R9A09G011
+	bool "ARM64 Platform support for RZ/V2M"
+	select PM
+	select PM_GENERIC_DOMAINS
+	select PWC_RZV2M
+	help
+	  This enables support for the Renesas RZ/V2M SoC.
+
+config ARCH_R9A09G055
+        bool "ARM64 Platform support for RZ/V2MA"
+        select PM
+        select PM_GENERIC_DOMAINS
+        select PWC_RZV2M
+        help
+          This enables support for the Renesas RZ/V2M SoC.
+
 endif # ARM64
+
+if RISCV
+config ARCH_R9A07G043F
+	bool "RISC-V Platform support for RZ/Five"
+	select ARCH_HAS_SYNC_DMA_FOR_CPU
+	select ARCH_HAS_SYNC_DMA_FOR_DEVICE
+	help
+	  This enables support for the Renesas RZ/Five SoC variants.
+
+endif # RISCV
+
+config PWC_RZV2M
+	bool "Renesas RZ/V2{M,MA} PWC support" if COMPILE_TEST
 
 config RST_RCAR
 	bool "Reset Controller support for R-Car" if COMPILE_TEST
