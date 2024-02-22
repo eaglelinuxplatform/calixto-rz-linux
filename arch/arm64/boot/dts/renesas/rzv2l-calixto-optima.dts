@@ -6,7 +6,8 @@
  */
 
 /dts-v1/;
-#include "r9a07g054l2.dtsi"
+//#include "r9a07g054l2.dtsi"
+#include "r9a07g054.dtsi"
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/pinctrl/rzg2l-pinctrl.h>
 #include <dt-bindings/regulator/dlg,da9063-regulator.h>
@@ -18,7 +19,8 @@
 	aliases {
                 serial0 = &scif0;
 		serial5 = &sci0;
-		ethernet0 = &eth0;	
+		ethernet0 = &eth0;
+		i2c0 = &i2c0;	
 		rtc0 = &da9062_rtc;
 	};
 
@@ -140,11 +142,6 @@
 
 	i2c0_pins: i2c0 {
 		pins = "RIIC0_SDA", "RIIC0_SCL";
-		input-enable;
-	};
-
-	i2c1_pins: i2c1 {
-		pins = "RIIC1_SDA", "RIIC1_SCL";
 		input-enable;
 	};
 
