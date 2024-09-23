@@ -132,6 +132,8 @@ struct sci_port {
 	int			irqs[SCIx_NR_IRQS];
 	char			*irqstr[SCIx_NR_IRQS];
 
+	struct reset_control 	*rstc;
+
 	struct dma_chan			*chan_tx;
 	struct dma_chan			*chan_rx;
 
@@ -591,7 +593,7 @@ static void sci_start_tx(struct uart_port *port)
 	    dma_submit_error(s->cookie_tx)) {
 		if (s->cfg->regtype == SCIx_RZ_SCIFA_REGTYPE)
 			/* Switch irq from SCIF to DMA */
-			disable_irq(s->irqs[SCIx_TXI_IRQ]);
+			disable_irq_nosync(s->irqs[SCIx_TXI_IRQ]);
 
 		s->cookie_tx = 0;
 		schedule_work(&s->work_tx);
@@ -848,11 +850,6 @@ static void sci_transmit_chars(struct uart_port *port)
 		} else if (!uart_circ_empty(xmit) && !stopped) {
 			c = xmit->buf[xmit->tail];
 			xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
-		} else if (port->type == PORT_SCI && uart_circ_empty(xmit)) {
-			ctrl = serial_port_in(port, SCSCR);
-			ctrl &= ~SCSCR_TE;
-			serial_port_out(port, SCSCR, ctrl);
-			return;
 		} else {
 			break;
 		}
@@ -2616,19 +2613,26 @@ done:
 
 		/* Enable Serial Extended Mode Register (SEMR) */
 		if ((sci_getreg(port, MDDR)->size) && (sci_getreg(port, SEMR)->size)
-				&& baud == 921600) {
+				&& baud > 115200) {
 			unsigned int mddr, prediv;
 			unsigned long freq = s->port.type != PORT_HSCIF ?
 				s->clk_rates[SCI_FCK]*2 : s->clk_rates[SCI_FCK];
 
+
+			prediv = (srr + 1) * (1 << (2 * cks + 1));
+			mddr = DIV_ROUND_CLOSEST((long)prediv * baud * 256 * (brr + 1), freq);
+			while (((mddr < 128) || (mddr >= 256)) && (brr > 0)) {
+				brr -= 1;
+				mddr = DIV_ROUND_CLOSEST((long)prediv * baud * 256 * (brr + 1), freq);
+			}
+
+			mddr = clamp(mddr, 128U, 256U);
+
+			serial_port_out(port, SCBRR, brr);
 			serial_port_out(port, SEMR,
 					serial_port_in(port, SEMR) | (SEMR_BRME | SEMR_MDDRS));
 			serial_port_out(port, SCSCR,
 					serial_port_in(port, SCSCR) & (~(SCSCR_TE | SCSCR_RE)));
-
-			prediv = (srr + 1) * (1 << (2 * cks + 1));
-			mddr = DIV_ROUND_CLOSEST((long)prediv * baud * 256 * (brr + 1), freq);
-			mddr = clamp(mddr, 128U, 256U);
 
 			serial_port_out(port, MDDR, mddr);
 			serial_port_out(port, SCSCR,
@@ -3311,6 +3315,10 @@ static const struct of_device_id of_sci_match[] = {
 		.compatible = "renesas,scif-r9a07g043f",
 		.data = SCI_OF_DATA(PORT_SCIF, SCIx_RZ_SCIFA_REGTYPE),
 	},
+	{
+		.compatible = "renesas,scif-r9a08g045",
+		.data = SCI_OF_DATA(PORT_SCIF, SCIx_RZ_SCIFA_REGTYPE),
+	},
 	/* Family-specific types */
 	{
 		.compatible = "renesas,rcar-gen1-scif",
@@ -3406,6 +3414,7 @@ static struct plat_sci_port *sci_parse_dt(struct platform_device *pdev,
 	p->regtype = SCI_OF_REGTYPE(data);
 
 	sp->has_rtscts = of_property_read_bool(np, "uart-has-rtscts");
+	sp->rstc = rstc;
 
 	return p;
 }
@@ -3534,12 +3543,25 @@ static __maybe_unused int sci_suspend(struct device *dev)
 	if (sport)
 		uart_suspend_port(&sci_uart_driver, &sport->port);
 
+	/* Also support "no_console_suspend" */
+	if (console_suspend_enabled)
+		reset_control_assert(sport->rstc);
+
 	return 0;
 }
 
 static __maybe_unused int sci_resume(struct device *dev)
 {
 	struct sci_port *sport = dev_get_drvdata(dev);
+	int ret;
+
+	if (console_suspend_enabled) {
+		ret = reset_control_deassert(sport->rstc);
+		if (ret) {
+			dev_err(dev, "failed to reset controller (error %d)\n", ret);
+			return ret;
+		}
+	}
 
 	if (sport)
 		uart_resume_port(&sci_uart_driver, &sport->port);
@@ -3640,6 +3662,7 @@ OF_EARLYCON_DECLARE(scif, "renesas,scif-r7s9210", rzscifa_early_console_setup);
 OF_EARLYCON_DECLARE(scif, "renesas,scif-r9a07g044", rzscifa_early_console_setup);
 OF_EARLYCON_DECLARE(scif, "renesas,scif-r9a07g043", rzscifa_early_console_setup);
 OF_EARLYCON_DECLARE(scif, "renesas,scif-r9a07g043f", rzscifa_early_console_setup);
+OF_EARLYCON_DECLARE(scif, "renesas,scif-r9a08g045", rzscifa_early_console_setup);
 OF_EARLYCON_DECLARE(scifa, "renesas,scifa", scifa_early_console_setup);
 OF_EARLYCON_DECLARE(scifb, "renesas,scifb", scifb_early_console_setup);
 OF_EARLYCON_DECLARE(hscif, "renesas,hscif", hscif_early_console_setup);

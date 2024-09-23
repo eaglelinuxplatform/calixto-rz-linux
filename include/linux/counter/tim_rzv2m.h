@@ -51,4 +51,3 @@ enum rzv2m_start_mode
 #endif
 
 #endif /* TIM_RZV2M_H_ */
-

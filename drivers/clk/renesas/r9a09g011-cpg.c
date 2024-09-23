@@ -28,16 +28,16 @@
 #define DIV_W		DDIV_PACK(0x328, 0, 3)
 
 #define SEL_B		SEL_PLL_PACK(0x214, 0, 1)
+#define SEL_D		SEL_PLL_PACK(0x214, 1, 1)
+#define SEL_E		SEL_PLL_PACK(0x214, 2, 1)
+#define SEL_SDI		SEL_PLL_PACK(0x300, 0, 1)
+#define SEL_W0		SEL_PLL_PACK(0x32C, 0, 1)
 #define SEL_CSI0	SEL_PLL_PACK(0x330, 0, 1)
 #define SEL_CSI1	SEL_PLL_PACK(0x330, 1, 1)
 #define SEL_CSI2	SEL_PLL_PACK(0x330, 2, 1)
 #define SEL_CSI3	SEL_PLL_PACK(0x330, 3, 1)
 #define SEL_CSI4	SEL_PLL_PACK(0x330, 4, 1)
 #define SEL_CSI5	SEL_PLL_PACK(0x330, 5, 1)
-#define SEL_D		SEL_PLL_PACK(0x214, 1, 1)
-#define SEL_E		SEL_PLL_PACK(0x214, 2, 1)
-#define SEL_SDI		SEL_PLL_PACK(0x300, 0, 1)
-#define SEL_W0		SEL_PLL_PACK(0x32C, 0, 1)
 
 enum clk_ids {
 	/* Core Clock Outputs exported to DT */
@@ -64,16 +64,16 @@ enum clk_ids {
 	CLK_DIV_W,
 	CLK_SEL_B,
 	CLK_SEL_B_D2,
+	CLK_SEL_D,
+	CLK_SEL_E,
+	CLK_SEL_SDI,
+	CLK_SEL_W0,
 	CLK_SEL_CSI0,
 	CLK_SEL_CSI1,
 	CLK_SEL_CSI2,
 	CLK_SEL_CSI3,
 	CLK_SEL_CSI4,
 	CLK_SEL_CSI5,
-	CLK_SEL_D,
-	CLK_SEL_E,
-	CLK_SEL_SDI,
-	CLK_SEL_W0,
 
 	/* Module Clocks */
 	MOD_CLK_BASE
@@ -106,6 +106,7 @@ static const struct clk_div_table dtable_divd[] = {
 	{0, 0},
 };
 
+
 static const struct clk_div_table dtable_divw[] = {
 	{0, 6},
 	{1, 7},
@@ -119,11 +120,11 @@ static const struct clk_div_table dtable_divw[] = {
 
 /* Mux clock tables */
 static const char * const sel_b[] = { ".main", ".divb" };
-static const char * const sel_csi[] = { ".main_24", ".main" };
 static const char * const sel_d[] = { ".main", ".divd" };
 static const char * const sel_e[] = { ".main", ".dive" };
 static const char * const sel_w[] = { ".main", ".divw" };
 static const char * const sel_sdi[] = { ".main", ".pll2_200" };
+static const char * const sel_csi[] = { ".main_24", ".main" };
 
 static const struct cpg_core_clk r9a09g011_core_clks[] __initconst = {
 	/* External Clock Inputs */
@@ -150,7 +151,7 @@ static const struct cpg_core_clk r9a09g011_core_clks[] __initconst = {
 	DEF_MUX_RO(".selb",	CLK_SEL_B,	SEL_B,		sel_b),
 	DEF_MUX_RO(".seld",	CLK_SEL_D,	SEL_D,		sel_d),
 	DEF_MUX_RO(".sele",	CLK_SEL_E,	SEL_E,		sel_e),
-	DEF_MUX(".selsdi",      CLK_SEL_SDI,    SEL_SDI,        sel_sdi),
+	DEF_MUX(".selsdi",	CLK_SEL_SDI,	SEL_SDI,	sel_sdi),
 	DEF_MUX(".selw0",	CLK_SEL_W0,	SEL_W0,		sel_w),
 	DEF_MUX(".selcsi0",     CLK_SEL_CSI0,   SEL_CSI0,       sel_csi),
 	DEF_MUX(".selcsi1",     CLK_SEL_CSI1,   SEL_CSI1,       sel_csi),
@@ -165,18 +166,19 @@ static const struct cpg_core_clk r9a09g011_core_clks[] __initconst = {
 static const struct rzg2l_mod_clk r9a09g011_mod_clks[] __initconst = {
 	DEF_MOD("pfc",		R9A09G011_PFC_PCLK,	 CLK_MAIN,     0x400, 2, 0),
 	DEF_MOD("gic",		R9A09G011_GIC_CLK,	 CLK_SEL_B_D2, 0x400, 5, 0),
-        DEF_MOD("sdi0_aclk",    R9A09G011_SDI0_ACLK,     CLK_SEL_D,    0x408, 0, 0),
-        DEF_MOD("sdi0_imclk",   R9A09G011_SDI0_IMCLK,    CLK_SEL_SDI,  0x408, 1, 0),
-        DEF_MOD("sdi0_imclk2",  R9A09G011_SDI0_IMCLK2,   CLK_SEL_SDI,  0x408, 2, 0),
-        DEF_MOD("sdi0_clk_hs",  R9A09G011_SDI0_CLK_HS,   CLK_PLL2_800, 0x408, 3, 0),
-        DEF_MOD("sdi1_aclk",    R9A09G011_SDI1_ACLK,     CLK_SEL_D,    0x408, 4, 0),
-        DEF_MOD("sdi1_imclk",   R9A09G011_SDI1_IMCLK,    CLK_SEL_SDI,  0x408, 5, 0),
-        DEF_MOD("sdi1_imclk2",  R9A09G011_SDI1_IMCLK2,   CLK_SEL_SDI,  0x408, 6, 0),
-        DEF_MOD("sdi1_clk_hs",  R9A09G011_SDI1_CLK_HS,   CLK_PLL2_800, 0x408, 7, 0),
-        DEF_MOD("emm_aclk",     R9A09G011_EMM_ACLK,      CLK_SEL_D,    0x408, 8, 0),
-        DEF_MOD("emm_imclk",    R9A09G011_EMM_IMCLK,     CLK_SEL_SDI,  0x408, 9, 0),
-        DEF_MOD("emm_imclk2",   R9A09G011_EMM_IMCLK2,    CLK_SEL_SDI,  0x408, 10, 0),
-        DEF_MOD("emm_clk_hs",   R9A09G011_EMM_CLK_HS,    CLK_PLL2_800, 0x408, 11, 0),
+	DEF_MOD("dmaa_aclk",    R9A09G011_DMAA_ACLK,     CLK_SEL_D,    0x400, 11, 0),
+	DEF_MOD("sdi0_aclk",	R9A09G011_SDI0_ACLK,	 CLK_SEL_D,    0x408, 0, 0),
+	DEF_MOD("sdi0_imclk",	R9A09G011_SDI0_IMCLK,	 CLK_SEL_SDI,  0x408, 1, 0),
+	DEF_MOD("sdi0_imclk2",	R9A09G011_SDI0_IMCLK2,	 CLK_SEL_SDI,  0x408, 2, 0),
+	DEF_MOD("sdi0_clk_hs",	R9A09G011_SDI0_CLK_HS,	 CLK_PLL2_800, 0x408, 3, 0),
+	DEF_MOD("sdi1_aclk",	R9A09G011_SDI1_ACLK,	 CLK_SEL_D,    0x408, 4, 0),
+	DEF_MOD("sdi1_imclk",	R9A09G011_SDI1_IMCLK,	 CLK_SEL_SDI,  0x408, 5, 0),
+	DEF_MOD("sdi1_imclk2",	R9A09G011_SDI1_IMCLK2,	 CLK_SEL_SDI,  0x408, 6, 0),
+	DEF_MOD("sdi1_clk_hs",	R9A09G011_SDI1_CLK_HS,	 CLK_PLL2_800, 0x408, 7, 0),
+	DEF_MOD("emm_aclk",	R9A09G011_EMM_ACLK,	 CLK_SEL_D,    0x408, 8, 0),
+	DEF_MOD("emm_imclk",	R9A09G011_EMM_IMCLK,	 CLK_SEL_SDI,  0x408, 9, 0),
+	DEF_MOD("emm_imclk2",	R9A09G011_EMM_IMCLK2,	 CLK_SEL_SDI,  0x408, 10, 0),
+	DEF_MOD("emm_clk_hs",	R9A09G011_EMM_CLK_HS,	 CLK_PLL2_800, 0x408, 11, 0),
 	DEF_COUPLED("eth_axi",	R9A09G011_ETH0_CLK_AXI,	 CLK_PLL2_200, 0x40c, 8, 0),
 	DEF_COUPLED("eth_chi",	R9A09G011_ETH0_CLK_CHI,	 CLK_PLL2_100, 0x40c, 8, 0),
 	DEF_MOD("eth_clk_gptp",	R9A09G011_ETH0_GPTP_EXT, CLK_PLL2_100, 0x40c, 9, 0),
@@ -213,6 +215,10 @@ static const struct rzg2l_mod_clk r9a09g011_mod_clks[] __initconst = {
 	DEF_MOD("tim_clk_21",	R9A09G011_TIM21_CLK,	 CLK_MAIN_2,   0x428, 9, 0),
 	DEF_MOD("tim_clk_22",	R9A09G011_TIM22_CLK,	 CLK_MAIN_2,   0x428, 10, 0),
 	DEF_MOD("tim_clk_23",	R9A09G011_TIM23_CLK,	 CLK_MAIN_2,   0x428, 11, 0),
+        DEF_MOD("wdt0_pclk",    R9A09G011_WDT0_PCLK,     CLK_SEL_E,    0x428, 12, 0),
+        DEF_MOD("wdt0_clk",     R9A09G011_WDT0_CLK,      CLK_MAIN,     0x428, 13, 0),
+        DEF_MOD("wdt1_pclk",    R9A09G011_WDT1_PCLK,     CLK_SEL_E,    0x428, 14, 0),
+        DEF_MOD("wdt1_clk",     R9A09G011_WDT1_CLK,      CLK_MAIN,     0x428, 15, 0),
 	DEF_MOD("cperi_grpd",   R9A09G011_CPERI_GRPD_PCLK, CLK_SEL_E,  0x42c, 0, 0),
 	DEF_MOD("tim_clk_24",   R9A09G011_TIM24_CLK,     CLK_MAIN_2,   0x42c, 4, 0),
 	DEF_MOD("tim_clk_25",   R9A09G011_TIM25_CLK,     CLK_MAIN_2,   0x42c, 5, 0),
@@ -222,22 +228,6 @@ static const struct rzg2l_mod_clk r9a09g011_mod_clks[] __initconst = {
 	DEF_MOD("tim_clk_29",   R9A09G011_TIM29_CLK,     CLK_MAIN_2,   0x42c, 9, 0),
 	DEF_MOD("tim_clk_30",   R9A09G011_TIM30_CLK,     CLK_MAIN_2,   0x42c, 10, 0),
 	DEF_MOD("tim_clk_31",   R9A09G011_TIM31_CLK,     CLK_MAIN_2,   0x42c, 11, 0),
-	DEF_MOD("wdt0_pclk",	R9A09G011_WDT0_PCLK,	 CLK_SEL_E,    0x428, 12, 0),
-	DEF_MOD("wdt0_clk",	R9A09G011_WDT0_CLK,	 CLK_MAIN,     0x428, 13, 0),
-        DEF_MOD("wdt1_pclk",    R9A09G011_WDT1_PCLK,     CLK_SEL_E,    0x428, 14, 0),
-        DEF_MOD("wdt1_clk",     R9A09G011_WDT1_CLK,      CLK_MAIN,     0x428, 15, 0),
-	DEF_MOD("urt_pclk",	R9A09G011_URT_PCLK,	 CLK_SEL_E,    0x438, 4, 0),
-	DEF_MOD("urt0_clk",	R9A09G011_URT0_CLK,	 CLK_SEL_W0,   0x438, 5, 0),
-	DEF_MOD("urt1_clk",	R9A09G011_URT1_CLK,	 CLK_SEL_W0,   0x438, 6, 0),
-	DEF_MOD("ca53",		R9A09G011_CA53_CLK,	 CLK_DIV_A,    0x448, 0, 0),
-	DEF_MOD("cperi_grpg",   R9A09G011_CPERI_GRPG_PCLK, CLK_SEL_E,  0x438, 0, 0),
-	DEF_MOD("cperi_grph",   R9A09G011_CPERI_GRPH_PCLK, CLK_SEL_E,  0x438, 1, 0),
-	DEF_MOD("csi0_clk",     R9A09G011_CSI0_CLK,      CLK_SEL_CSI0, 0x438, 8, 0),
-	DEF_MOD("csi1_clk",     R9A09G011_CSI1_CLK,      CLK_SEL_CSI1, 0x438, 9, 0),
-	DEF_MOD("csi2_clk",     R9A09G011_CSI2_CLK,      CLK_SEL_CSI2, 0x438, 10, 0),
-	DEF_MOD("csi3_clk",     R9A09G011_CSI3_CLK,      CLK_SEL_CSI3, 0x438, 11, 0),
-	DEF_MOD("csi4_clk",     R9A09G011_CSI4_CLK,      CLK_SEL_CSI4, 0x438, 12, 0),
-	DEF_MOD("csi5_clk",     R9A09G011_CSI5_CLK,      CLK_SEL_CSI5, 0x438, 13, 0),
         DEF_MOD("cperi_grpe",   R9A09G011_CPERI_GRPE_PCLK, CLK_SEL_E,  0x430, 0, 0),
         DEF_MOD("pwm0_clk",     R9A09G011_PWM0_CLK,      CLK_MAIN,     0x430, 4, 0),
         DEF_MOD("pwm1_clk",     R9A09G011_PWM1_CLK,      CLK_MAIN,     0x430, 5, 0),
@@ -256,15 +246,26 @@ static const struct rzg2l_mod_clk r9a09g011_mod_clks[] __initconst = {
         DEF_MOD("pwm13_clk",    R9A09G011_PWM13_CLK,     CLK_MAIN,     0x434, 9, 0),
         DEF_MOD("pwm14_clk",    R9A09G011_PWM14_CLK,     CLK_MAIN,     0x434, 10, 0),
         DEF_MOD("pwm15_clk",    R9A09G011_PWM15_CLK,     CLK_MAIN,     0x434, 11, 0),
-	DEF_MOD("dmaa_aclk",    R9A09G011_DMAA_ACLK,     CLK_SEL_D,    0x400, 11, 0),
+	DEF_MOD("cperi_grpg",   R9A09G011_CPERI_GRPG_PCLK, CLK_SEL_E,  0x438, 0, 0),
+	DEF_MOD("cperi_grph",   R9A09G011_CPERI_GRPH_PCLK, CLK_SEL_E,  0x438, 1, 0),
+	DEF_MOD("urt_pclk",	R9A09G011_URT_PCLK,	 CLK_SEL_E,    0x438, 4, 0),
+	DEF_MOD("urt0_clk",	R9A09G011_URT0_CLK,	 CLK_SEL_W0,   0x438, 5, 0),
+	DEF_MOD("urt1_clk",     R9A09G011_URT1_CLK,      CLK_SEL_W0,   0x438, 6, 0),
+	DEF_MOD("csi0_clk",     R9A09G011_CSI0_CLK,      CLK_SEL_CSI0, 0x438, 8, 0),
+	DEF_MOD("csi1_clk",     R9A09G011_CSI1_CLK,      CLK_SEL_CSI1, 0x438, 9, 0),
+	DEF_MOD("csi2_clk",     R9A09G011_CSI2_CLK,      CLK_SEL_CSI2, 0x438, 10, 0),
+	DEF_MOD("csi3_clk",     R9A09G011_CSI3_CLK,      CLK_SEL_CSI3, 0x438, 11, 0),
+	DEF_MOD("csi4_clk",     R9A09G011_CSI4_CLK,      CLK_SEL_CSI4, 0x438, 12, 0),
+	DEF_MOD("csi5_clk",     R9A09G011_CSI5_CLK,      CLK_SEL_CSI5, 0x438, 13, 0),
+	DEF_MOD("ca53",		R9A09G011_CA53_CLK,	 CLK_DIV_A,    0x448, 0, 0),
 };
 
 static const struct rzg2l_reset r9a09g011_resets[] = {
 	DEF_RST(R9A09G011_PFC_PRESETN,		0x600, 2),
 	DEF_RST(R9A09G011_DMAA_ARESETN,		0x600, 7),
-        DEF_RST_MON(R9A09G011_SDI0_IXRST,       0x608, 0,  6),
-        DEF_RST_MON(R9A09G011_SDI1_IXRST,       0x608, 1,  7),
-        DEF_RST_MON(R9A09G011_EMM_IXRST,        0x608, 2,  8),
+	DEF_RST_MON(R9A09G011_SDI0_IXRST,	0x608, 0,  6),
+	DEF_RST_MON(R9A09G011_SDI1_IXRST,	0x608, 1,  7),
+	DEF_RST_MON(R9A09G011_EMM_IXRST,	0x608, 2,  8),
 	DEF_RST(R9A09G011_USB_PRESET_N,		0x608, 7),
 	DEF_RST(R9A09G011_USB_DRD_RESET,	0x608, 8),
 	DEF_RST(R9A09G011_USB_ARESETN_P,	0x608, 9),
@@ -275,29 +276,28 @@ static const struct rzg2l_reset r9a09g011_resets[] = {
 	DEF_RST(R9A09G011_TIM_GPB_PRESETN,	0x614, 1),
 	DEF_RST(R9A09G011_TIM_GPC_PRESETN,	0x614, 2),
 	DEF_RST(R9A09G011_TIM_GPD_PRESETN,      0x614, 3),
-	DEF_RST(R9A09G011_IIC_GPA_PRESETN,	0x614, 8),
 	DEF_RST_MON(R9A09G011_PWM_GPE_PRESETN,  0x614, 4, 23),
 	DEF_RST_MON(R9A09G011_PWM_GPF_PRESETN,  0x614, 5, 23),
-	DEF_RST(R9A09G011_IIC_GPB_PRESETN,	0x614, 9),
-	DEF_RST_MON(R9A09G011_WDT0_PRESETN,	0x614, 12, 19),
-	DEF_RST_MON(R9A09G011_WDT1_PRESETN,	0x614, 13, 19),
 	DEF_RST_MON(R9A09G011_CSI_GPG_PRESETN,  0x614, 6, 24),
 	DEF_RST_MON(R9A09G011_CSI_GPH_PRESETN,  0x614, 7, 25),
+	DEF_RST(R9A09G011_IIC_GPA_PRESETN,	0x614, 8),
+	DEF_RST(R9A09G011_IIC_GPB_PRESETN,	0x614, 9),
+	DEF_RST_MON(R9A09G011_WDT0_PRESETN,	0x614, 12, 19),
+	DEF_RST_MON(R9A09G011_WDT1_PRESETN,     0x614, 13, 20),
 	DEF_RST_MON(R9A09G011_DRPA_ARESETN,     0x620, 0, 14),
 	DEF_RST_MON(R9A09G011_DRPB_ARESETN,     0x624, 0, 15),
 };
 
 static const unsigned int r9a09g011_crit_mod_clks[] __initconst = {
 	MOD_CLK_BASE + R9A09G011_CA53_CLK,
-	MOD_CLK_BASE + R9A09G011_CPERI_GRPA_PCLK,
 	MOD_CLK_BASE + R9A09G011_CPERI_GRPB_PCLK,
 	MOD_CLK_BASE + R9A09G011_CPERI_GRPC_PCLK,
-	MOD_CLK_BASE + R9A09G011_CPERI_GRPD_PCLK,
 	MOD_CLK_BASE + R9A09G011_CPERI_GRPE_PCLK,
 	MOD_CLK_BASE + R9A09G011_CPERI_GRPF_PCLK,
 	MOD_CLK_BASE + R9A09G011_GIC_CLK,
 	MOD_CLK_BASE + R9A09G011_SYC_CNT_CLK,
 	MOD_CLK_BASE + R9A09G011_URT_PCLK,
+	MOD_CLK_BASE + R9A09G011_DMAA_ACLK,
 	MOD_CLK_BASE + R9A09G011_CPERI_GRPG_PCLK,
 	MOD_CLK_BASE + R9A09G011_CPERI_GRPH_PCLK,
 };

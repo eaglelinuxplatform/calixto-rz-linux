@@ -9,6 +9,8 @@
  * Copyright 2012 Javier Martin, Vista Silicon <javier.martin@vista-silicon.com>
  */
 
+#include <linux/bitfield.h>
+#include <linux/console.h>
 #include <linux/dma-mapping.h>
 #include <linux/dmaengine.h>
 #include <linux/interrupt.h>
@@ -148,9 +150,7 @@ struct rz_dmac {
 #define CHCFG_SEL(bits)			((bits) & 0x07)
 #define CHCFG_MEM_COPY			(0x80400008)
 #define CHCFG_FILL_DDS_MASK		GENMASK(19, 16)
-#define CHCFG_FILL_DDS(a)		(((a) << 16) & CHCFG_FILL_DDS_MASK)
 #define CHCFG_FILL_SDS_MASK		GENMASK(15, 12)
-#define CHCFG_FILL_SDS(a)		(((a) << 12) & CHCFG_FILL_SDS_MASK)
 #define CHCFG_FILL_TM(a)		(((a) & BIT(5)) << 22)
 #define CHCFG_FILL_AM(a)		(((a) & GENMASK(4, 2)) << 6)
 #define CHCFG_FILL_LVL(a)		(((a) & BIT(1)) << 5)
@@ -614,21 +614,20 @@ static int rz_dmac_config(struct dma_chan *chan,
 	channel->src_per_address = config->src_addr;
 	channel->dst_per_address = config->dst_addr;
 
-	if (config->direction == DMA_DEV_TO_MEM) {
-		val = rz_dmac_ds_to_val_mapping(config->src_addr_width);
-		if (val == CHCFG_DS_INVALID)
-			return -EINVAL;
+	val = rz_dmac_ds_to_val_mapping(config->dst_addr_width);
+	if (val == CHCFG_DS_INVALID)
+		return -EINVAL;
 
-		channel->chcfg &= ~CHCFG_FILL_SDS_MASK;
-		channel->chcfg |= CHCFG_FILL_SDS(val);
-	} else {
-		val = rz_dmac_ds_to_val_mapping(config->dst_addr_width);
-		if (val == CHCFG_DS_INVALID)
-			return -EINVAL;
+	channel->chcfg &= ~CHCFG_FILL_DDS_MASK;
+	channel->chcfg |= FIELD_PREP(CHCFG_FILL_DDS_MASK, val);
 
-		channel->chcfg &= ~CHCFG_FILL_DDS_MASK;
-		channel->chcfg |= CHCFG_FILL_DDS(val);
-	}
+	val = rz_dmac_ds_to_val_mapping(config->src_addr_width);
+	if (val == CHCFG_DS_INVALID)
+		return -EINVAL;
+
+	channel->chcfg &= ~CHCFG_FILL_SDS_MASK;
+	channel->chcfg |= FIELD_PREP(CHCFG_FILL_SDS_MASK, val);
+
 	return 0;
 }
 
@@ -932,6 +931,53 @@ static struct dma_chan *rz_dmac_of_xlate(struct of_phandle_args *dma_spec,
 	return dma_request_channel(mask, rz_dmac_chan_filter, dma_spec);
 }
 
+static int rz_dmac_init(struct rz_dmac *dmac)
+{
+	int i;
+
+	for (i = 0; i < dmac->n_channels; i++)
+		rz_dmac_ch_writel(&dmac->channels[i], CHCTRL_DEFAULT, CHCTRL, 1);
+
+	return 0;
+}
+
+/* -----------------------------------------------------------------------------
+ * Power management
+ */
+
+static int __maybe_unused rz_dmac_suspend(struct device *dev)
+{
+	struct rz_dmac *dmac = dev_get_drvdata(dev);
+
+	if (console_suspend_enabled) {
+		reset_control_assert(dmac->rstc);
+		pm_runtime_put(dev);
+	}
+
+	return 0;
+}
+
+static int __maybe_unused rz_dmac_resume(struct device *dev)
+{
+	struct rz_dmac *dmac = dev_get_drvdata(dev);
+
+	if (console_suspend_enabled) {
+		pm_runtime_get_sync(dev);
+		reset_control_deassert(dmac->rstc);
+	}
+	return rz_dmac_init(dmac);
+}
+
+static const struct dev_pm_ops rz_dmac_pm = {
+	/*
+	 * TODO for system sleep/resume:
+	 *   - Wait for the current transfer to complete and stop the device,
+	 *   - Resume transfers, if any.
+	 */
+	SET_NOIRQ_SYSTEM_SLEEP_PM_OPS(rz_dmac_suspend,
+				      rz_dmac_resume)
+};
+
 /*
  * -----------------------------------------------------------------------------
  * Probe and remove
@@ -1135,7 +1181,6 @@ static int rz_dmac_probe(struct platform_device *pdev)
 dma_register_err:
 	of_dma_controller_free(pdev->dev.of_node);
 err:
-	reset_control_assert(dmac->rstc);
 	channel_num = i ? i - 1 : 0;
 	for (i = 0; i < channel_num; i++) {
 		struct rz_dmac_chan *channel = &dmac->channels[i];
@@ -1146,6 +1191,7 @@ err:
 				  channel->lmdesc.base_dma);
 	}
 
+	reset_control_assert(dmac->rstc);
 err_pm_runtime_put:
 	pm_runtime_put(&pdev->dev);
 err_pm_disable:
@@ -1159,6 +1205,8 @@ static int rz_dmac_remove(struct platform_device *pdev)
 	struct rz_dmac *dmac = platform_get_drvdata(pdev);
 	unsigned int i;
 
+	dma_async_device_unregister(&dmac->engine);
+	of_dma_controller_free(pdev->dev.of_node);
 	for (i = 0; i < dmac->n_channels; i++) {
 		struct rz_dmac_chan *channel = &dmac->channels[i];
 
@@ -1167,8 +1215,6 @@ static int rz_dmac_remove(struct platform_device *pdev)
 				  channel->lmdesc.base,
 				  channel->lmdesc.base_dma);
 	}
-	of_dma_controller_free(pdev->dev.of_node);
-	dma_async_device_unregister(&dmac->engine);
 	reset_control_assert(dmac->rstc);
 	pm_runtime_put(&pdev->dev);
 	pm_runtime_disable(&pdev->dev);
@@ -1186,6 +1232,7 @@ static struct platform_driver rz_dmac_driver = {
 	.driver		= {
 		.name	= "rz-dmac",
 		.of_match_table = of_rz_dmac_match,
+		.pm	= &rz_dmac_pm,
 	},
 	.probe		= rz_dmac_probe,
 	.remove		= rz_dmac_remove,

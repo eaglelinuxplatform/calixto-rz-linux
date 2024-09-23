@@ -109,33 +109,6 @@
 #error "RZ/G2L can only display 1 output interface"
 #endif
 
-/*
- * MTU3 macros are created to support setting pinctrl and properties in order
- * to use MTU3 functions. However, their pins on PMODs are mixed with SCIF2
- * and SPI1, so we must disable these modules to avoid conflict.
- * - MTU3_PWM_SUPPORT: Disable SPI1 to support PWM of MTU3. By default, PWM mode 1
- *   of MTU3 channel2 and channel3 will be selected.
- * - MTU3_PWM_COMPLEMENTARY_SELECT: Enable this macro to select complementary PWM
- *   mode of MTU3 channel3 instead of PWM mode 1.
- * - MTU3_PHASE_COUNTING_SUPPORT: Disable SCIF2 to support phase counting functions.
- * - MTU3_32BIT_PHASE_COUNTING_SELECT: Select 32-bit phase counting mode; this macro
- *   is used along with MTU3_PHASE_COUNTING_SUPPORT.
- *   IMPORTAN NOTE: We need MTIOC1A (CP19_0) on Dev board to test Z-phase of 32-bit counter,
- *   but this pin is mixed with SDHI1-CD. Thus, we must disable SDHI1-CD leading to
- *   bad effect when using SD card slot, so be careful when enabling this macro.
- */
-#define MTU3_PWM_SUPPORT			0
-#define MTU3_PWM_COMPLEMENTARY_SELECT		0
-#define MTU3_PHASE_COUNTING_SUPPORT		0
-#define MTU3_32BIT_PHASE_COUNTING_SELECT	0
-
-/*
- * POE3_SUPPORT is used to enable POE3 to control Hi-Z state of complementary PWM
- * signals at MTIOC3B-MTIOC3D. Note: This macro must be enabled along with macros
- * MTU3_PWM_SUPPORT and MTU3_PWM_COMPLEMENTARY_SELECT to fully take effect.
- */
-#define POE3_SUPPORT				0
-
 / {
 	aliases {
 		serial0 = &scif0;
@@ -319,14 +292,12 @@
 			 <RZG2L_PORT_PINMUX(40, 1, 1)>;	/* RxD */
 	};
 
-#if (!MTU3_PHASE_COUNTING_SUPPORT)
 	scif2_pins: scif2 {
 		pinmux = <RZG2L_PORT_PINMUX(48, 0, 1)>, /* TxD */
 			 <RZG2L_PORT_PINMUX(48, 1, 1)>, /* RxD */
 			 <RZG2L_PORT_PINMUX(48, 3, 1)>, /* CTS# */
 			 <RZG2L_PORT_PINMUX(48, 4, 1)>; /* RTS# */
 	};
-#endif
 
 	sdhi0_pins: sd0 {
 		sd0_data {
@@ -356,11 +327,8 @@
 		};
 
 		sd1_mux {
-			pinmux =
-#if (!MTU3_32BIT_PHASE_COUNTING_SELECT)
-				<RZG2L_PORT_PINMUX(19, 0, 1)>, /* CD */
-#endif
-				<RZG2L_PORT_PINMUX(19, 1, 1)>; /* WP */
+			pinmux = <RZG2L_PORT_PINMUX(19, 0, 1)>, /* CD */
+				 <RZG2L_PORT_PINMUX(19, 1, 1)>; /* WP */
 		};
 	};
 
@@ -377,11 +345,8 @@
 		};
 
 		sd1_mux_uhs {
-			pinmux =
-#if (!MTU3_32BIT_PHASE_COUNTING_SELECT)
-				<RZG2L_PORT_PINMUX(19, 0, 1)>, /* CD */
-#endif
-				<RZG2L_PORT_PINMUX(19, 1, 1)>; /* WP */
+			pinmux = <RZG2L_PORT_PINMUX(19, 0, 1)>, /* CD */
+				 <RZG2L_PORT_PINMUX(19, 1, 1)>; /* WP */
 		};
 	};
 
@@ -478,14 +443,12 @@
 	};
 #endif
 
-#if (!MTU3_PWM_SUPPORT)
 	spi1_pins: rspi1 {
 		pinmux = <RZG2L_PORT_PINMUX(44, 0, 1)>, /* CK */
 			 <RZG2L_PORT_PINMUX(44, 1, 1)>, /* MOSI */
 			 <RZG2L_PORT_PINMUX(44, 2, 1)>, /* MISO */
 			 <RZG2L_PORT_PINMUX(44, 3, 1)>; /* SSL */
 	};
-#endif
 
 #if (GPT3_SUPPORT & !GPT4_SUPPORT)
 	gpt3_pins: gpt3 {
@@ -591,52 +554,6 @@
 		};
 	};
 #endif
-
-#if (MTU3_PWM_SUPPORT || MTU3_PHASE_COUNTING_SUPPORT)
-	mtu3_pins: mtu3 {
-		pinmux =
-#if MTU3_PHASE_COUNTING_SUPPORT
-#if MTU3_32BIT_PHASE_COUNTING_SELECT
-			<RZG2L_PORT_PINMUX(19, 0, 3)>, /* MTIOC1A */
-#endif
-			<RZG2L_PORT_PINMUX(48, 0, 4)>, /* MTCLKA */
-#if !MTU3_PWM_SUPPORT
-			<RZG2L_PORT_PINMUX(48, 1, 4)>; /* MTLCKB */
-#else
-			<RZG2L_PORT_PINMUX(48, 1, 4)>, /* MTLCKB */
-#endif
-#endif
-#if MTU3_PWM_SUPPORT
-			<RZG2L_PORT_PINMUX(44, 0, 4)>, /* MTIOC3A */
-			<RZG2L_PORT_PINMUX(44, 1, 4)>, /* MTIOC3B */
-			<RZG2L_PORT_PINMUX(44, 2, 4)>, /* MTIOC3C */
-#if !MTU3_PWM_COMPLEMENTARY_SELECT
-			<RZG2L_PORT_PINMUX(3, 0, 4)>;  /* MTIOC2A */
-#else
-			<RZG2L_PORT_PINMUX(44, 3, 4)>; /* MTIOC3D */
-#endif
-#endif
-	};
-#endif
-
-	/* POE3 input capture can be tested via Mainboard CN4 in 2 cases:
-	 * 1. Use CAN subboard. Test POE0#(CP7) and POE10#(CP11).
-	 * 2. Use CN-G PMOD subboard. Test POE0#(TH22), POE4#(TH18),
-	 *    POE8#(TH23), and POE10#(TH19).
-	 */
-#if POE3_SUPPORT
-	poe3_pins: poe3 {
-#if CAN_SUPPORT
-		pinmux = <RZG2L_PORT_PINMUX(12, 0, 3)>, /* POE0# */
-			 <RZG2L_PORT_PINMUX(13, 1, 3)>; /* POE10# */
-#elif !DISP_PARALLEL
-		pinmux = <RZG2L_PORT_PINMUX(12, 0, 3)>, /* POE0# */
-			 <RZG2L_PORT_PINMUX(12, 1, 3)>, /* POE4# */
-			 <RZG2L_PORT_PINMUX(13, 0, 3)>, /* POE8# */
-			 <RZG2L_PORT_PINMUX(13, 1, 3)>; /* POE10# */
-#endif
-	};
-#endif
 };
 
 &audio_clk1{
@@ -692,14 +609,12 @@
 	status = "okay";
 };
 
-#if (!MTU3_PHASE_COUNTING_SUPPORT)
 &scif2 {
 	pinctrl-0 = <&scif2_pins>;
 	pinctrl-names = "default";
 	uart-has-rtscts;
 	status = "okay";
 };
-#endif
 
 &sdhi0 {
 	pinctrl-0 = <&sdhi0_pins>;
@@ -876,7 +791,6 @@
 	};
 };
 
-#if (!MTU3_PWM_SUPPORT)
 &spi1 {
 	pinctrl-0 = <&spi1_pins>;
 	pinctrl-names = "default";
@@ -885,7 +799,6 @@
 	       <&dmac 0x2e9a>;
 	dma-names = "tx", "rx";
 };
-#endif
 
 #if !(CN12)
 &poega {
@@ -1083,31 +996,6 @@
 };
 
 &mtu3 {
-#if (MTU3_PWM_SUPPORT || MTU3_PHASE_COUNTING_SUPPORT)
-	pinctrl-0 = <&mtu3_pins>;
-	pinctrl-names = "default";
-#endif
-
-#if MTU3_PWM_SUPPORT
-#if MTU3_PWM_COMPLEMENTARY_SELECT
-	/* Enable PWM complementary at MTIOC3B and MTIOC3D pins. */
-	pwm_complementary = <3 1>;
-#else
-	/* Enable PWM output at MTIOC2A and MTIOC3C pins. */
-	pwm_mode1 = <2 0>, <3 1>;
-#endif
-#endif
-
-#if MTU3_PHASE_COUNTING_SUPPORT
-#if MTU3_32BIT_PHASE_COUNTING_SELECT
-	/* Enable 1 32-bit phase counter by using both MTU1 and MTU2. */
-	32-bit_phase_counting;
-#else
-	/* Enable 2 16-bit phase counters for MTU1 and MTU2. */
-	16-bit_phase_counting = <1 2>;
-#endif
-#endif
-
 	status = "okay";
 };
 
@@ -1123,26 +1011,6 @@
 &ohci1 {
 	status = "okay";
 };
-
-#if (MTU3_PWM_SUPPORT && MTU3_PWM_COMPLEMENTARY_SELECT && POE3_SUPPORT)
-&poe3 {
-#if (CAN_SUPPORT || !DISP_PARALLEL)
-	pinctrl-0 = <&poe3_pins>;
-	pinctrl-names = "default";
-	poe3_pins_mode = <0 0>, <4 0>, <8 0>, <10 0>;
-#endif
-	status = "okay";
-
-	mtu3_ch34 {
-#if CAN_SUPPORT
-		addition_poe3_inputs = <0>, <10>;
-#elif !DISP_PARALLEL
-		addition_poe3_inputs = <0>, <4>, <8>, <10>;
-#endif
-		mtu3_outputs = <0>; /* MTIOC3B-MTIOC3D */
-	};
-};
-#endif
 
 &hsusb {
 	dr_mode = "otg";

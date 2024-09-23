@@ -8,9 +8,6 @@
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/clock/r9a07g043-cpg.h>
 
-/* This macro is used to enable setting of all MTU3 interrupts. */
-#define MTU3_ALL_IRQ_EN			0
-
 / {
 	compatible = "renesas,r9a07g043";
 	#address-cells = <2>;
@@ -49,6 +46,7 @@
 		optee {
 			compatible = "linaro,optee-tz";
 			method = "smc";
+			status = "disabled";
 		};
 	};
 
@@ -113,17 +111,10 @@
 		#size-cells = <2>;
 		ranges;
 
-		edac: edac@11410000 {
-			compatible = "renesas,r9a07g043-edac";
-			reg = <0 0x11410000 0 0x10000>;
-			interrupts = <GIC_SPI 40 IRQ_TYPE_LEVEL_HIGH>;
-			interrupt-names = "ecc_irq";
-		};
-
 		mtu3: timer@10001200 {
-			compatible = "renesas,mtu3";
+			compatible = "renesas,r9a07g043-mtu3",
+				     "renesas,rz-mtu3";
 			reg = <0 0x10001200 0 0xB00>;
-#if MTU3_ALL_IRQ_EN
 			interrupts =
 				<GIC_SPI 170 IRQ_TYPE_EDGE_RISING>,
 				<GIC_SPI 171 IRQ_TYPE_EDGE_RISING>,
@@ -184,17 +175,16 @@
 					  "tciv7",
 					  "tgia8", "tgib8", "tgic8", "tgid8",
 					  "tciv8", "tciu8";
-#endif
 			clocks = <&cpg CPG_MOD R9A07G043_MTU_X_MCK_MTU3>;
-			clock-names = "fck";
 			power-domains = <&cpg>;
 			resets = <&cpg R9A07G043_MTU_X_PRESET_MTU3>;
+			#pwm-cells = <2>;
 			status = "disabled";
 		};
 
 		poe3: poe3@10049800 {
-			compatible = "renesas,rz-poe3",
-				     "renesas,r9a07g044-poe3";
+			compatible = "renesas,r9a07g043-poe3",
+				     "renesas,rz-poe3";
 			reg = <0 0x10049800 0 0x18>;
 			interrupts = <GIC_SPI 214 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 215 IRQ_TYPE_LEVEL_HIGH>,
@@ -206,28 +196,6 @@
 			resets = <&cpg R9A07G043_POE3_RST_M_REG>;
 			power-domains = <&cpg>;
 			status = "disabled";
-		};
-
-		intc_ex: intc_ex@0x110A0000 {
-			compatible = "renesas,rzg2ul-irqc";
-			#interrupt-cells = <2>;
-			interrupt-controller;
-			reg = <0x0 0x110A0000 0 0x10000>;
-			interrupts = <GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>,
-					<GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>,
-					<GIC_SPI 3 IRQ_TYPE_LEVEL_HIGH>,
-					<GIC_SPI 4 IRQ_TYPE_LEVEL_HIGH>,
-					<GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>,
-					<GIC_SPI 6 IRQ_TYPE_LEVEL_HIGH>,
-					<GIC_SPI 7 IRQ_TYPE_LEVEL_HIGH>,
-					<GIC_SPI 8 IRQ_TYPE_LEVEL_HIGH>,
-					<GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>;
-			interrupt-names = "irq0", "irq1", "irq2", "irq3",
-			"irq4", "irq5", "irq6", "irq7", "nmi";
-			clocks = <&cpg CPG_MOD R9A07G043_IA55_CLK>;
-			resets = <&cpg R9A07G043_IA55_RESETN>;
-			power-domains = <&cpg>;
-			 status = "disabled";
 		};
 
 		ssi0: ssi@10049c00 {
@@ -792,6 +760,28 @@
 			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_LOW>;
 		};
 
+		intc_ex: intc_ex@0x110A0000 {
+			compatible = "renesas,rzg2ul-irqc";
+			#interrupt-cells = <2>;
+			interrupt-controller;
+			reg = <0x0 0x110A0000 0 0x10000>;
+			interrupts = <GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>,
+					<GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>,
+					<GIC_SPI 3 IRQ_TYPE_LEVEL_HIGH>,
+					<GIC_SPI 4 IRQ_TYPE_LEVEL_HIGH>,
+					<GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>,
+					<GIC_SPI 6 IRQ_TYPE_LEVEL_HIGH>,
+					<GIC_SPI 7 IRQ_TYPE_LEVEL_HIGH>,
+					<GIC_SPI 8 IRQ_TYPE_LEVEL_HIGH>,
+					<GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "irq0", "irq1", "irq2", "irq3",
+			"irq4", "irq5", "irq6", "irq7", "nmi";
+			clocks = <&cpg CPG_MOD R9A07G043_IA55_CLK>;
+			resets = <&cpg R9A07G043_IA55_RESETN>;
+			power-domains = <&cpg>;
+			 status = "disabled";
+		};
+
 		sdhi0: mmc@11c00000 {
 			compatible = "renesas,sdhi-r9a07g043",
 				     "renesas,rcar-gen3-sdhi";
@@ -961,7 +951,7 @@
 
 		hsusb: usb@11c60000 {
 			compatible = "renesas,usbhs-r9a07g043",
-				     "renesas,rza2-usbhs";
+				     "renesas,rzg2l-usbhs";
 			reg = <0 0x11c60000 0 0x10000>;
 			interrupts = <GIC_SPI 100 IRQ_TYPE_EDGE_RISING>,
 				     <GIC_SPI 101 IRQ_TYPE_LEVEL_HIGH>,
@@ -1148,6 +1138,13 @@
 					};
 				};
 			};
+		};
+
+		edac: edac@11410000 {
+			compatible = "renesas,r9a07g043-edac";
+			reg = <0 0x11410000 0 0x10000>;
+			interrupts = <GIC_SPI 40 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "ecc_irq";
 		};
 	};
 

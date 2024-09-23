@@ -8,30 +8,9 @@
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/pinctrl/rzg2l-pinctrl.h>
 
-/*
- * MTU3 macros are created to support setting pinctrl and properties in order
- * to use MTU3 functions. However, their pins on PMOD0 are mixed with SPI1,
- * so we must disable this module to avoid conflict.
- * - MTU3_PWM_SUPPORT: Disable SPI1 to support PWM functions of channel3.
- *   By default, PWM mode 1 of MTIOC3C will be selected.
- * - MTU3_PWM_COMPLEMENTARY_SELECT: Enable this macro to select complementary PWM
- *   mode of MTIOC3B and MTIOC3D instead of PWM mode 1. This mode depends on macro
- *   MTU3_PWM_SUPPORT.
- */
-#define MTU3_PWM_SUPPORT			0
-#define MTU3_PWM_COMPLEMENTARY_SELECT		0
-
-/*
- * POE3_SUPPORT is used to enable POE3 to control Hi-Z state of complementary PWM
- * signals at MTIOC3B-MTIOC3D. Note: This macro must be enabled along with macros
- * MTU3_PWM_SUPPORT and MTU3_PWM_COMPLEMENTARY_SELECT to fully take effect.
- */
-#define POE3_SUPPORT				0
-
 / {
 	aliases {
 		ethernet0 = &eth0;
-		i2c2 = &i2c2;
 	};
 
 	chosen {
@@ -104,6 +83,13 @@
 		gpios = <&pinctrl RZG2L_GPIO(39, 0) GPIO_ACTIVE_HIGH>;
 		regulator-always-on;
 	};
+
+	/* 32.768kHz crystal */
+	x2: x2-clock {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <32768>;
+	};
 };
 
 &eth0 {
@@ -139,6 +125,23 @@
 	clock-frequency = <24000000>;
 };
 
+&i2c2 {
+	pinctrl-0 = <&i2c2_pins>;
+	pinctrl-names = "default";
+	clock-frequency = <400000>;
+
+	status = "okay";
+
+	raa215300: pmic@12 {
+		compatible = "renesas,raa215300";
+		reg = <0x12>, <0x6f>;
+		reg-names = "main", "rtc";
+
+		clocks = <&x2>;
+		clock-names = "xin";
+	};
+};
+
 &ostm1 {
 	status = "okay";
 };
@@ -149,21 +152,29 @@
 
 &pinctrl {
 	eth0_pins: eth0 {
-		pinmux = <RZG2L_PORT_PINMUX(28, 1, 1)>, /* ET0_LINKSTA */
-			 <RZG2L_PORT_PINMUX(27, 1, 1)>, /* ET0_MDC */
-			 <RZG2L_PORT_PINMUX(28, 0, 1)>, /* ET0_MDIO */
-			 <RZG2L_PORT_PINMUX(20, 0, 1)>, /* ET0_TXC */
-			 <RZG2L_PORT_PINMUX(20, 1, 1)>, /* ET0_TX_CTL */
-			 <RZG2L_PORT_PINMUX(20, 2, 1)>, /* ET0_TXD0 */
-			 <RZG2L_PORT_PINMUX(21, 0, 1)>, /* ET0_TXD1 */
-			 <RZG2L_PORT_PINMUX(21, 1, 1)>, /* ET0_TXD2 */
-			 <RZG2L_PORT_PINMUX(22, 0, 1)>, /* ET0_TXD3 */
-			 <RZG2L_PORT_PINMUX(24, 0, 1)>, /* ET0_RXC */
-			 <RZG2L_PORT_PINMUX(24, 1, 1)>, /* ET0_RX_CTL */
-			 <RZG2L_PORT_PINMUX(25, 0, 1)>, /* ET0_RXD0 */
-			 <RZG2L_PORT_PINMUX(25, 1, 1)>, /* ET0_RXD1 */
-			 <RZG2L_PORT_PINMUX(26, 0, 1)>, /* ET0_RXD2 */
-			 <RZG2L_PORT_PINMUX(26, 1, 1)>; /* ET0_RXD3 */
+		txc {
+			pinmux = <RZG2L_PORT_PINMUX(20, 0, 1)>; /* ET0_TXC */
+			output-enable;
+			power-source = <1800>;
+		};
+
+		mux {
+			pinmux = <RZG2L_PORT_PINMUX(28, 1, 1)>, /* ET0_LINKSTA */
+				 <RZG2L_PORT_PINMUX(27, 1, 1)>, /* ET0_MDC */
+				 <RZG2L_PORT_PINMUX(28, 0, 1)>, /* ET0_MDIO */
+				 <RZG2L_PORT_PINMUX(20, 1, 1)>, /* ET0_TX_CTL */
+				 <RZG2L_PORT_PINMUX(20, 2, 1)>, /* ET0_TXD0 */
+				 <RZG2L_PORT_PINMUX(21, 0, 1)>, /* ET0_TXD1 */
+				 <RZG2L_PORT_PINMUX(21, 1, 1)>, /* ET0_TXD2 */
+				 <RZG2L_PORT_PINMUX(22, 0, 1)>, /* ET0_TXD3 */
+				 <RZG2L_PORT_PINMUX(24, 0, 1)>, /* ET0_RXC */
+				 <RZG2L_PORT_PINMUX(24, 1, 1)>, /* ET0_RX_CTL */
+				 <RZG2L_PORT_PINMUX(25, 0, 1)>, /* ET0_RXD0 */
+				 <RZG2L_PORT_PINMUX(25, 1, 1)>, /* ET0_RXD1 */
+				 <RZG2L_PORT_PINMUX(26, 0, 1)>, /* ET0_RXD2 */
+				 <RZG2L_PORT_PINMUX(26, 1, 1)>; /* ET0_RXD3 */
+			power-source = <1800>;
+		};
 	};
 
 	gpio-sd0-pwr-en-hog {
@@ -340,42 +351,4 @@
 &wdt2 {
 	status = "okay";
 	timeout-sec = <60>;
-};
-
-&ehci0 {
-	memory-region = <&global_cma>;
-};
-
-&ohci0 {
-	memory-region = <&global_cma>;
-};
-
-&ehci1 {
-	memory-region = <&global_cma>;
-};
-
-&ohci1 {
-	memory-region = <&global_cma>;
-};
-
-&i2c2 {
-	pinctrl-0 = <&i2c2_pins>;
-	pinctrl-names = "default";
-	clock-frequency = <400000>;
-
-	status = "okay";
-
-	pmic: raa215300@12 {
-		compatible = "renesas,raa215300";
-		reg = <0x12>;
-
-		rtc-enable;
-	};
-
-	rtc: isl1208@6f {
-		compatible = "isil,isl1208";
-		reg = <0x6f>;
-
-		external-oscillator;
-	};
 };

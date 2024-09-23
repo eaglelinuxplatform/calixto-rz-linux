@@ -20,21 +20,10 @@
 	aliases {
 		serial0 = &uart0;
 		ethernet0 = &avb;
-		mmc0 = &emmc;
-		mmc1 = &sdhi0;
 	};
 
 	chosen {
 		stdout-path = "serial0:115200n8";
-	};
-
-	memory@58000000 {
-		device_type = "memory";
-		/*
-		 * first 1.25GiB is reserved for ISP Firmware,
-		 * next 128MiB is reserved for secure area.
-		 */
-		reg = <0x0 0x58000000 0x0 0x28000000>;
 	};
 
 	memory@180000000 {
@@ -42,42 +31,42 @@
 		reg = <0x1 0x80000000 0x0 0x7FC00000>;
 	};
 
-        reg_1v8: regulator-1v8 {
-                compatible = "regulator-fixed";
-                regulator-name = "fixed-1.8V";
-                regulator-min-microvolt = <1800000>;
-                regulator-max-microvolt = <1800000>;
-                regulator-boot-on;
-                regulator-always-on;
-        };
+	reg_1v8: regulator-1v8 {
+		compatible = "regulator-fixed";
+		regulator-name = "fixed-1.8V";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
 
-        reg_3v3: regulator-3v3 {
-                compatible = "regulator-fixed";
-                regulator-name = "fixed-3.3V";
-                regulator-min-microvolt = <3300000>;
-                regulator-max-microvolt = <3300000>;
-                regulator-boot-on;
-                regulator-always-on;
-        };
+	reg_3v3: regulator-3v3 {
+		compatible = "regulator-fixed";
+		regulator-name = "fixed-3.3V";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
 
-        vccq_sdhi0: regulator-vccq-sdhi0 {
-                compatible = "regulator-gpio";
+	vccq_sdhi0: regulator-vccq-sdhi0 {
+		compatible = "regulator-gpio";
 
-                regulator-name = "SDHI0 VccQ";
-                regulator-min-microvolt = <1800000>;
-                regulator-max-microvolt = <3300000>;
+		regulator-name = "SDHI0 VccQ";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <3300000>;
 
-                gpios = <&pwc 0 GPIO_ACTIVE_HIGH>;
-                gpios-states = <1>;
-                states = <3300000 0>, <1800000 1>;
-        };
+		gpios = <&pwc 0 GPIO_ACTIVE_HIGH>;
+		gpios-states = <1>;
+		states = <3300000 0>, <1800000 1>;
+	};
 };
 
 &avb {
 	renesas,no-ether-link;
 	phy-handle = <&phy0>;
 	phy-mode = "gmii";
-	status = "okay";
+	status = "disabled";
 
 	phy0: ethernet-phy@0 {
 		compatible = "ethernet-phy-id001c.c916",
@@ -126,6 +115,13 @@
 };
 
 &pinctrl {
+	csi4_pins: csi4 {
+		pinmux = <RZV2M_PORT_PINMUX(4, 0, 1)>, /* CSTXD4  */
+			 <RZV2M_PORT_PINMUX(4, 1, 1)>, /* CSRXD4  */
+			 <RZV2M_PORT_PINMUX(4, 2, 1)>, /* CSSCLK4 */
+			 <RZV2M_PORT_PINMUX(4, 3, 1)>; /* CSCS4   */
+	};
+
 	emmc_pins: emmc {
 		emmc_data {
 			pinmux = <RZV2M_PORT_PINMUX(0, 0, 2)>, /* MMDAT0 */
@@ -232,55 +228,6 @@
 	pwm14_pins: pwm14 {
 		pinmux = <RZV2M_PORT_PINMUX(1, 14, 1)>; /* PM14 */
 	};
-
-	csi4_pins: csi4 {
-		pinmux = <RZV2M_PORT_PINMUX(4, 0, 1)>, /* CSTXD4  */
-			 <RZV2M_PORT_PINMUX(4, 1, 1)>, /* CSRXD4  */
-			 <RZV2M_PORT_PINMUX(4, 2, 1)>, /* CSSCLK4 */
-			 <RZV2M_PORT_PINMUX(4, 3, 1)>; /* CSCS4   */
-       };
-};
-
-&pwm8 {
-	pinctrl-0 = <&pwm8_pins>;
-	pinctrl-names = "default";
-	status = "okay";
-};
-
-&pwm9 {
-	pinctrl-0 = <&pwm9_pins>;
-	pinctrl-names = "default";
-	status = "okay";
-};
-
-&pwm10 {
-	pinctrl-0 = <&pwm10_pins>;
-	pinctrl-names = "default";
-	status = "okay";
-};
-
-&pwm11 {
-	pinctrl-0 = <&pwm11_pins>;
-	pinctrl-names = "default";
-	status = "okay";
-};
-
-&pwm12 {
-	pinctrl-0 = <&pwm12_pins>;
-	pinctrl-names = "default";
-	status = "okay";
-};
-
-&pwm13 {
-	pinctrl-0 = <&pwm13_pins>;
-	pinctrl-names = "default";
-	status = "okay";
-};
-
-&pwm14 {
-	pinctrl-0 = <&pwm14_pins>;
-	pinctrl-names = "default";
-	status = "okay";
 };
 
 &pwc {
@@ -309,26 +256,12 @@
 	status = "okay";
 };
 
-&csi4 {
-	pinctrl-0 = <&csi4_pins>;
-	pinctrl-names = "default";
-
-	status = "okay";
-	slavedev4: spi@0 {
-		compatible = "rzv2m,slavedev";
-		reg = <0>;
-		spi-max-frequency = <24000000>;
-		spi-cpha;
-		spi-cpol;
-	};
-};
-
 &usb3drd {
 	status = "okay";
 };
 
 &usb3host {
-	status = "okay";
+	status = "disabled";
 };
 
 &usb3peri {
@@ -407,4 +340,60 @@
 
 &tim23 {
     status = "okay";
+};
+
+&csi4 {
+	pinctrl-0 = <&csi4_pins>;
+	pinctrl-names = "default";
+
+	status = "okay";
+	slavedev4: spi@0 {
+		compatible = "rzv2m,slavedev";
+		reg = <0>;
+		spi-max-frequency = <24000000>;
+		spi-cpha;
+		spi-cpol;
+	};
+};
+
+&pwm8 {
+	pinctrl-0 = <&pwm8_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&pwm9 {
+	pinctrl-0 = <&pwm9_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&pwm10 {
+	pinctrl-0 = <&pwm10_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&pwm11 {
+	pinctrl-0 = <&pwm11_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&pwm12 {
+	pinctrl-0 = <&pwm12_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&pwm13 {
+	pinctrl-0 = <&pwm13_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&pwm14 {
+	pinctrl-0 = <&pwm14_pins>;
+	pinctrl-names = "default";
+	status = "okay";
 };

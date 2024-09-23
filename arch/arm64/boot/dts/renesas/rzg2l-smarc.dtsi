@@ -8,9 +8,6 @@
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/pinctrl/rzg2l-pinctrl.h>
 
-/* comment the #define statement to disable SCIF2 (SER0) on PMOD1 (CN7) */
-//#define PMOD1_SER0	1
-
 / {
 	aliases {
 		serial1 = &scif2;
@@ -50,6 +47,13 @@
 		#clock-cells = <1>;
 		clocks = <&x1_clk>;
 		clock-names = "x1";
+
+		renesas,settings = [
+			80 00 11 19 4c 02 23 7f 83 19 08 a9 5f 25 24 bf
+			00 14 7a e1 00 00 00 00 01 55 59 bb 3f 30 90 b6
+			80 b0 45 c4 95
+		];
+
 		assigned-clocks = <&versa3 0>,
 				   <&versa3 1>,
 				   <&versa3 2>,
@@ -69,6 +73,26 @@
 		reg = <0x1a>;
 	};
 };
+
+#if PMOD_MTU3
+&mtu3 {
+	pinctrl-0 = <&mtu3_pins>;
+	pinctrl-names = "default";
+
+	status = "okay";
+};
+
+#if MTU3_COUNTER_Z_PHASE_SIGNAL
+/* SDHI cd pin is muxed with counter Z phase signal */
+&sdhi1 {
+	status = "disabled";
+};
+#endif /* MTU3_COUNTER_Z_PHASE_SIGNAL */
+
+&spi1 {
+	status = "disabled";
+};
+#endif /* PMOD_MTU3 */
 
 /*
  * To enable SCIF2 (SER0) on PMOD1 (CN7)
@@ -124,36 +148,35 @@
 	interrupts = <RZG2L_GPIO(2, 1) IRQ_TYPE_EDGE_FALLING>;
 };
 
-#if (MTU3_PWM_SUPPORT || MTU3_PHASE_COUNTING_SUPPORT)
-&mtu3 {
-	pinctrl-0 = <&mtu3_pins>;
-	pinctrl-names = "default";
+#if (POEGD_SUPPORT)
+&poega {
+	status = "okay";
+};
 
-#if MTU3_PWM_SUPPORT
-	/* MTU3 PWM functions setting. */
-#if MTU3_PWM_COMPLEMENTARY_SELECT
-	/* Enable PWM complementary for MTIOC3B and MTIOC3D pins. */
-	pwm_complementary = <3 1>;
-#else
-	/* Enable PWM mode 1 out for MTIOC3A pins. */
-	pwm_mode1 = <3 0>;
-#endif
-#endif
+&poegb {
+	status = "okay";
+};
 
-#if MTU3_PHASE_COUNTING_SUPPORT
-	/* MTU3 Phase counting functions setting. */
-#if MTU3_32BIT_PHASE_COUNTING_SELECT
-	/* Enable 1 32-bit phase counting counter by using both MTU1 and MTU2. */
-	32-bit_phase_counting;
-#else
-	/* Enable 2 16-bit phase counting counters of MTU1 and MTU2. */
-	16-bit_phase_counting = <1 2>;
-#endif
-#endif
+&poegc {
+	status = "okay";
+};
+
+&poegd {
+	status = "okay";
 };
 #endif
 
-#if (MTU3_PWM_SUPPORT && MTU3_PWM_COMPLEMENTARY_SELECT && POE3_SUPPORT)
+&gpt4 {
+	pinctrl-0 = <&gpt4_pins>;
+	pinctrl-names = "default";
+	channel = "both_AB";
+#if (POEGD_SUPPORT)
+	poeg = <&poega &poegb &poegc &poegd>;
+#endif
+	status = "okay";
+};
+
+#if (PMOD_MTU3 && POE3_SUPPORT)
 &poe3 {
 	status = "okay";
 

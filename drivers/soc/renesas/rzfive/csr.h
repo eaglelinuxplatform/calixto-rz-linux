@@ -1,4 +1,3 @@
-
 /* micm_cfg: Instruction Cache/Memory Configuration Register */
 #define MICM_CFG 0xfc0
 

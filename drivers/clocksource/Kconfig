@@ -497,9 +497,6 @@ config SPRD_TIMER
 config SYS_SUPPORTS_SH_MTU2
 	bool
 
-config SYS_SUPPORTS_RENESAS_MTU3
-	bool
-
 config SYS_SUPPORTS_SH_TMU
 	bool
 
@@ -533,18 +530,19 @@ config SH_TIMER_MTU2
 	  Timer Pulse Unit 2 (MTU2) hardware available on SoCs from Renesas.
 	  This hardware comes with 16-bit timer registers.
 
-config RENESAS_TIMER_MTU3
-	bool "Renesas MTU3 timer driver"
-	depends on HAS_IOMEM && OF
-	default SYS_SUPPORTS_RENESAS_MTU3
+
+config RZ_TIMER_MTU3
+	tristate "Renesas MTU3 timer driver"
+	depends on RZ_MTU3
 	help
-	  This enables to build driver of Multi-Function Timer Pulse Unit 3 (MTU3a),
-	  the hardware module which could be available on Renesas SoCs.
-	  This hardware has eight 16-bit timer channels and 1 32-bit timer channel.
+	  This enables build of a clocksource, clockevent driver for the
+	  Multi-Function Timer Pulse Unit 3 (MTU3) hardware available on
+	  SoCs from Renesas.
+	  This hardware comes with 16/32 bits timer registers.
 
 config RENESAS_POE3
 	bool "Renesas POE3 driver"
-	depends on RENESAS_TIMER_MTU3
+	depends on RZ_MTU3
 	help
 	  This enables build of port output enable 3 (POE3) for placing
 	  output pins of MTU3 in high-impedance state.
@@ -557,13 +555,6 @@ config RENESAS_OSTM
 	help
 	  Enables the support for the Renesas OSTM.
 
-config RZV2M_TIM_CNT
-       bool "Renesas RZ/V2{M,MA} counter driver"
-       depends on ARCH_R9A09G011 || ARCH_R9A09G055 || COMPILE_TEST
-       help
-          Enable support for RZ/V2{M,MA} counter driver found on Renesas RZ/V2{M,MA} alike
-          SoCs. This IP supports 32 bit counter.
-
 config SH_TIMER_TMU
 	bool "Renesas TMU timer driver" if COMPILE_TEST
 	depends on HAS_IOMEM
@@ -572,6 +563,13 @@ config SH_TIMER_TMU
 	  This enables build of a clocksource and clockevent driver for
 	  the 32-bit Timer Unit (TMU) hardware available on a wide range
 	  SoCs from Renesas.
+
+config RZV2M_TIM_CNT
+       bool "Renesas RZ/V2{M,MA} counter driver"
+       depends on ARCH_R9A09G011 || ARCH_R9A09G055 || COMPILE_TEST
+       help
+          Enable support for RZ/V2M counter driver found on Renesas RZ/V2M alike
+          SoCs. This IP supports 32 bit counter.
 
 config EM_TIMER_STI
 	bool "Renesas STI timer driver" if COMPILE_TEST
