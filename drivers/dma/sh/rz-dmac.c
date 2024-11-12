@@ -10,7 +10,6 @@
  */
 
 #include <linux/bitfield.h>
-#include <linux/console.h>
 #include <linux/dma-mapping.h>
 #include <linux/dmaengine.h>
 #include <linux/interrupt.h>
@@ -949,10 +948,8 @@ static int __maybe_unused rz_dmac_suspend(struct device *dev)
 {
 	struct rz_dmac *dmac = dev_get_drvdata(dev);
 
-	if (console_suspend_enabled) {
-		reset_control_assert(dmac->rstc);
-		pm_runtime_put(dev);
-	}
+	reset_control_assert(dmac->rstc);
+	pm_runtime_put(dev);
 
 	return 0;
 }
@@ -961,10 +958,8 @@ static int __maybe_unused rz_dmac_resume(struct device *dev)
 {
 	struct rz_dmac *dmac = dev_get_drvdata(dev);
 
-	if (console_suspend_enabled) {
-		pm_runtime_get_sync(dev);
-		reset_control_deassert(dmac->rstc);
-	}
+	pm_runtime_get_sync(dev);
+	reset_control_deassert(dmac->rstc);
 	return rz_dmac_init(dmac);
 }
 

@@ -248,7 +248,6 @@
 			power-domains = <&cpg>;
 			resets = <&cpg R9A07G044_MTU_X_PRESET_MTU3>;
 			#pwm-cells = <2>;
-			status = "disabled";
 		};
 
 		poe3: poe3@10049800 {
@@ -926,7 +925,6 @@
 				 <&cpg CPG_MOD R9A07G044_GPU_AXI_CLK>,
 				 <&cpg CPG_MOD R9A07G044_GPU_ACE_CLK>;
 			clock-names = "gpu", "bus", "bus_ace";
-			power-domains = <&cpg>;
 			resets = <&cpg R9A07G044_GPU_RESETN>,
 				 <&cpg R9A07G044_GPU_AXI_RESETN>,
 				 <&cpg R9A07G044_GPU_ACE_RESETN>;

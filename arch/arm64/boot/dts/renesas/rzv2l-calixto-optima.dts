@@ -100,30 +100,47 @@
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
 	};
-	panel_rgb: panel-rgb {
+	vcc_lcd: regulator-vcc-lcd {
+		compatible = "regulator-fixed";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-name = "vcc_lcd";
+		regulator-boot-on;
+		regulator-always-on;
+	};
+	vcc_sys: regulator-vcc-sys {
+		compatible = "regulator-fixed";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <3800000>;
+		regulator-max-microvolt = <3800000>;
+		regulator-name = "vcc_sys";
+	};
+	
+//	panel_rgb: panel-rgb {
 
 //             compatible = "giantplus,gpm940b0";   /* Used this compatible if the panel is supported in panel-simple */
-               compatible = "panel-dpi";
-               /* panel-timing is used for "panel-dpi" compatible */
-               panel-timing {
-                       clock-frequency = <9000000>;
-                       hactive = <480>;
-                       vactive = <272>;
-                       hsync-len = <43>;
-                       hfront-porch = <8>;
-                       hback-porch = <41>;
-                       vfront-porch = <4>;
-                       vback-porch = <10>;
-                       vsync-len = <21>;
-               };
+//              compatible = "panel-dpi";
+//               /* panel-timing is used for "panel-dpi" compatible */
+//               panel-timing {
+//                       clock-frequency = <9000000>;
+//                       hactive = <480>;
+//                       vactive = <272>;
+//                       hsync-len = <43>;
+//                       hfront-porch = <8>;
+//                       hback-porch = <41>;
+//                       vfront-porch = <4>;
+//                       vback-porch = <10>;
+//                       vsync-len = <21>;
+//               };
 
-               port {
-                       panel_in_rgb: endpoint {
-                               remote-endpoint = <&du_out_rgb>;
-                       };
-               };
+//              port {
+//                       panel_in_rgb: endpoint {
+//                               remote-endpoint = <&du_out_rgb>;
+//                       };
+//               };
 
-       };
+//       };*/
 	
 	clk_ext_camera: clk_ext_camera {
 		compatible = "fixed-clock";
@@ -155,10 +172,21 @@
 		regulator-always-on;
 	};
 
+	backlight: backlight {
+                compatible = "gpio-backlight";
+                gpios = <&pinctrl RZG2L_GPIO(4, 1) GPIO_ACTIVE_HIGH>;
+                default-on;
+        };
+
 };
 
 
 &pinctrl {
+
+        gpt3_pins: gpt3 {
+                pinmux = <RZG2L_PORT_PINMUX(19, 1, 2)>; /* Channel B */
+        };
+
 	sci0_pins: sci0 {
 		pinmux = <RZG2L_PORT_PINMUX(47, 1, 1)>,	/* TxD */
 			 <RZG2L_PORT_PINMUX(47, 0, 1)>;	/* RxD */
@@ -305,7 +333,15 @@
 			pinmux = <RZG2L_PORT_PINMUX(19, 0, 1)>; /* SD1_CD */
 		};
 	};
+};
 
+&gpt3 {
+        pinctrl-0 = <&gpt3_pins>;
+        pinctrl-names = "default";
+        channel = "channel_B";
+        //conflict pin with SD1 WP
+        poeg = <&poega &poegb &poegc &poegd>;
+        status = "okay";
 };
 
 
@@ -325,7 +361,7 @@
 &canfd {
 	pinctrl-0 = <&can1_pins>;
 	pinctrl-names = "default";
-	compatible = "renesas,no-can-fd";
+	renesas,no-can-fd;
 	status = "okay";
 
 	channel1 {
@@ -503,6 +539,7 @@
 				regulator-max-microvolt = <2500000>;
 				regulator-always-on;
 			};
+
 		};
 
 	};
@@ -557,10 +594,12 @@
 &ehci0 {
 	dr_mode = "otg";
 	status = "okay";
+	memory-region = <&global_cma>;
 };
 
 &ehci1 {
 	status = "okay";
+	memory-region = <&global_cma>;
 };
 
 &hsusb {
@@ -586,10 +625,12 @@
 &ohci0 {
 	dr_mode = "otg";
 	status = "okay";
+	memory-region = <&global_cma>;
 };
 
 &ohci1 {
 	status = "okay";
+	memory-region = <&global_cma>;
 };
 
 &phyrst {
@@ -644,17 +685,17 @@
 };
 
 &du {
-	pinctrl-0 = <&du_pins>;
-	pinctrl-names = "default";
+//	pinctrl-0 = <&du_pins>;
+//	pinctrl-names = "default";
 	status = "okay";
 
-	ports {
-		port@0 {
-			du_out_rgb: endpoint {
-						remote-endpoint = <&panel_in_rgb>;
-			};
-		};
-	};
+//	ports {
+//		port@0 {
+//			du_out_rgb: endpoint {
+//						remote-endpoint = <&panel_in_rgb>;
+//			};
+//		};
+//	};
 };
 
 &csi2 {
@@ -673,8 +714,36 @@
 &cru {
 	status = "okay";
 };
+
 &dsi0 {
-	status = "disabled";
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+	ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			port@1 {
+					dsi0_out: endpoint {
+							remote-endpoint = <&panel_in>;
+							data-lanes = <1 2 3 4>;
+					};
+			};
+	};
+	panel@0 {
+			compatible = "rocktech,hx8394f";
+			reg = <0>;
+			dsi-lanes = <4>;
+			iovcc-supply = <&vcc_lcd>;
+			vcc-supply = <&vcc_lcd>;
+			reset-gpios = <&pinctrl RZG2L_GPIO(42, 4) GPIO_ACTIVE_LOW>;
+			backlight = <&backlight>;
+			status = "okay";
+			port {
+					panel_in: endpoint {
+							remote-endpoint = <&dsi0_out>;
+					};
+			};
+	};
 };
 
 &ov5645 {
