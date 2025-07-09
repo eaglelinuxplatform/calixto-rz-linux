@@ -22,6 +22,7 @@
 		ethernet1 = &eth1;
 		rtc0 = &da9062_rtc;
 		i2c3 = &i2c3;
+		i2c1 = &i2c1;
 	};
 
 	chosen {
@@ -92,7 +93,6 @@
 		regulator-boot-on;
 		regulator-always-on;
 	};
-
 
 	usb0_vbus_otg: regulator-usb0-vbus-otg {
 		compatible = "regulator-fixed";
@@ -352,6 +352,11 @@
 			pinmux = <RZG2L_PORT_PINMUX(19, 0, 1)>; /* SD1_CD */
 		};
 	};
+	
+	goodix_pins: goodix_pins {
+		pinmux = <RZG2L_PORT_PINMUX(1, 0, 1)>, /* INTERRUPT */
+			 <RZG2L_PORT_PINMUX(48, 3, 0)>;  /* RESET */
+	};
 };
 
 &gpt3 {
@@ -417,8 +422,6 @@
 		reset-deassert-us = <10000>;
 		reset-gpios = <&pinctrl RZG2L_GPIO(40, 2) GPIO_ACTIVE_LOW>;
 
-		interrupt-parent = <&pinctrl>;
-		interrupts = <RZG2L_GPIO(1, 0) IRQ_TYPE_LEVEL_LOW>;
 	};
 };
 &eth1 {
@@ -447,7 +450,7 @@
 
 		reset-assert-us = <10000>;
 		reset-deassert-us = <10000>;
-		reset-gpios = <&pinctrl RZG2L_GPIO(1, 1) GPIO_ACTIVE_LOW>;
+
 	};
 };
 
@@ -592,6 +595,29 @@
 	};
 };
 
+&i2c1 {
+	pinctrl-0 = <&i2c1_pins>;
+	pinctrl-names = "default";
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+	
+	gt911: gt911@5d {
+		compatible = "goodix,gt911";
+       	reg = <0x5d>;
+       	pinctrl-names = "default";
+        	pinctrl-0 = <&goodix_pins>;
+        	interrupt-parent = <&pinctrl>;
+        	interrupts = <RZG2L_GPIO(1, 0) IRQ_TYPE_LEVEL_LOW>; /* interrupt no, high to low edge triggered */
+        	irq-gpios = <&pinctrl RZG2L_GPIO(1, 0) GPIO_ACTIVE_LOW>;
+        	reset-gpios = <&pinctrl RZG2L_GPIO(48, 3) GPIO_ACTIVE_HIGH>;
+        	touchscreen-size-x = <720>;
+        	touchscreen-size-y = <1280>;
+	};
+	
+};
+
+
 &i2c3 {
 	pinctrl-0 = <&i2c3_pins>;
 	pinctrl-names = "default";
@@ -715,21 +741,6 @@
 	memory-region = <&global_cma>;
 };
 
-&ehci0 {
-	memory-region = <&global_cma>;
-};
-
-&ohci0 {
-	memory-region = <&global_cma>;
-};
-
-&ehci1 {
-	memory-region = <&global_cma>;
-};
-
-&ohci1 {
-	memory-region = <&global_cma>;
-};
 
 &du {
 //	pinctrl-0 = <&du_pins>;
@@ -758,9 +769,11 @@
 		};
 	};
 };
+
 &cru {
 	status = "okay";
 };
+
 &dsi0 {
 	status = "okay";
 	#address-cells = <1>;

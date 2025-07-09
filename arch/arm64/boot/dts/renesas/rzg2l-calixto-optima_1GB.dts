@@ -17,10 +17,11 @@
 
 	aliases {
                 serial0 = &scif0;
-		serial5 = &sci0;
-		ethernet0 = &eth0;	
+		serial4 = &scif4;
+		ethernet0 = &eth0;
 		rtc0 = &da9062_rtc;
 		i2c3 = &i2c3;
+		i2c1 = &i2c1;
 	};
 
 	chosen {
@@ -31,7 +32,7 @@
 	memory@48000000 {
 		device_type = "memory";
 		/* first 128MB is reserved for secure area. */
-		reg = <0x0 0x48000000 0x0 0x58000000>;
+		reg = <0x0 0x48000000 0x0 0x38000000>;
 	};
 
 	reserved-memory {
@@ -91,7 +92,6 @@
 		regulator-boot-on;
 		regulator-always-on;
 	};
-
 
 	usb0_vbus_otg: regulator-usb0-vbus-otg {
 		compatible = "regulator-fixed";
@@ -187,9 +187,9 @@
                 pinmux = <RZG2L_PORT_PINMUX(19, 1, 2)>; /* Channel B */
         };
 
-	sci0_pins: sci0 {
-		pinmux = <RZG2L_PORT_PINMUX(47, 1, 1)>,	/* TxD */
-			 <RZG2L_PORT_PINMUX(47, 0, 1)>;	/* RxD */
+	scif4_pins: scif4 {
+		pinmux = <RZG2L_PORT_PINMUX(2, 0, 5)>,	/* TxD */
+			 <RZG2L_PORT_PINMUX(2, 1, 5)>;	/* RxD */
 			 /* <RZG2L_PORT_PINMUX(47, 2, 0)>; */	/* GPIO - RS485 Output Enable */
 	};
 
@@ -287,6 +287,7 @@
 			pinmux = <RZG2L_PORT_PINMUX(6, 0, 1)>; /* CLK */
 		};
 	};
+
 	qspi0_pins: qspi0 {
 		qspi0-data {
 			pins = "QSPI0_IO0", "QSPI0_IO1", "QSPI0_IO2", "QSPI0_IO3";
@@ -333,6 +334,11 @@
 			pinmux = <RZG2L_PORT_PINMUX(19, 0, 1)>; /* SD1_CD */
 		};
 	};
+	
+	goodix_pins: goodix_pins {
+		pinmux = <RZG2L_PORT_PINMUX(39, 0, 0)>, /* INTERRUPT */
+			 <RZG2L_PORT_PINMUX(39, 2, 0)>;  /* RESET */
+	};
 };
 
 &gpt3 {
@@ -344,14 +350,16 @@
         status = "okay";
 };
 
+
+
 &scif0 {
 	pinctrl-0 = <&scif0_pins>;
 	pinctrl-names = "default";
 	status = "okay";
 };
 
-&sci0 {
-	pinctrl-0 = <&sci0_pins>;
+&scif4 {
+	pinctrl-0 = <&scif4_pins>;
 	pinctrl-names = "default";
 	status = "okay";
 };
@@ -537,11 +545,33 @@
 				regulator-max-microvolt = <2500000>;
 				regulator-always-on;
 			};
-
 		};
 
 	};
 };
+
+&i2c1 {
+	pinctrl-0 = <&i2c1_pins>;
+	pinctrl-names = "default";
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+	
+	gt911: gt911@5d {
+		compatible = "goodix,gt911";
+       	reg = <0x5d>;
+       	pinctrl-names = "default";
+        	pinctrl-0 = <&goodix_pins>;
+        	interrupt-parent = <&pinctrl>;
+        	interrupts = <RZG2L_GPIO(39, 0) IRQ_TYPE_LEVEL_LOW>; /* interrupt no, high to low edge triggered */
+        	irq-gpios = <&pinctrl RZG2L_GPIO(39, 0) GPIO_ACTIVE_LOW>;
+        	reset-gpios = <&pinctrl RZG2L_GPIO(39, 2) GPIO_ACTIVE_HIGH>;
+        	touchscreen-size-x = <720>;
+        	touchscreen-size-y = <1280>;
+	};
+	
+};
+
 
 &i2c3 {
 	pinctrl-0 = <&i2c3_pins>;
@@ -666,21 +696,6 @@
 	memory-region = <&global_cma>;
 };
 
-&ehci0 {
-	memory-region = <&global_cma>;
-};
-
-&ohci0 {
-	memory-region = <&global_cma>;
-};
-
-&ehci1 {
-	memory-region = <&global_cma>;
-};
-
-&ohci1 {
-	memory-region = <&global_cma>;
-};
 
 &du {
 //	pinctrl-0 = <&du_pins>;
@@ -709,6 +724,7 @@
 		};
 	};
 };
+
 &cru {
 	status = "okay";
 };
