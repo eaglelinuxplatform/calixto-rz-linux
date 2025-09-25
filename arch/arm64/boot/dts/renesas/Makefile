@@ -86,6 +86,9 @@ dtb-$(CONFIG_ARCH_R8A779A0) += r8a779a0-falcon.dtb
 
 dtb-$(CONFIG_ARCH_R9A07G043) += r9a07g043u11-smarc.dtb
 dtb-$(CONFIG_ARCH_R9A07G043) += r9a07g043u11-dev.dtb
+dtb-$(CONFIG_ARCH_R9A07G043) += rzg2ul-calixto-tiny_256MB.dtb
+dtb-$(CONFIG_ARCH_R9A07G043) += rzg2ul-calixto-tiny_512MB.dtb
+dtb-$(CONFIG_ARCH_R9A07G043) += rzg2ul-calixto-tiny_1GB.dtb
 
 dtb-$(CONFIG_ARCH_R9A07G044) += r9a07g044c2-smarc.dtb
 dtb-$(CONFIG_ARCH_R9A07G044) += r9a07g044c2-dev.dtb
