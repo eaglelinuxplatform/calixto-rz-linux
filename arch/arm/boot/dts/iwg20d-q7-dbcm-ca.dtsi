@@ -1,0 +1,280 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Device Tree Source for the iWave-RZ-G1M/N Daughter Board Camera Module
+ *
+ * Copyright (C) 2017 Renesas Electronics Corp.
+ */
+
+/ {
+	aliases {
+		serial1 = &scif1;
+		serial4 = &hscif1;
+	};
+
+	cec_clock: cec-clock {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <12000000>;
+	};
+
+	hdmi-out {
+		compatible = "hdmi-connector";
+		type = "a";
+
+		port {
+			hdmi_con_out: endpoint {
+				remote-endpoint = <&adv7511_out>;
+			};
+		};
+	};
+
+	clk_ov5640: ov5640-clock {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <26000000>;
+	};
+
+	clk_ov7725: ov7725-clock {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <26000000>;
+	};
+
+	reg_1p8v: 1p8v {
+		compatible = "regulator-fixed";
+		regulator-name = "1P8V";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+	};
+
+	reg_2p8v: 2p8v {
+		compatible = "regulator-fixed";
+		regulator-name = "2P8V";
+		regulator-min-microvolt = <2800000>;
+		regulator-max-microvolt = <2800000>;
+		regulator-always-on;
+	};
+};
+
+&can1 {
+	pinctrl-0 = <&can1_pins>;
+	pinctrl-names = "default";
+
+	status = "okay";
+};
+
+&du {
+	pinctrl-0 = <&du_pins>;
+	pinctrl-names = "default";
+
+	ports {
+		port@0 {
+			endpoint {
+				remote-endpoint = <&adv7511_in>;
+			};
+		};
+	};
+};
+
+&gpio0 {
+	can1-trx-en-gpio {
+		gpio-hog;
+		gpios = <4 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "can1-trx-en-gpio";
+	};
+
+	tvp-power{
+		gpio-hog;
+		gpios = <22 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "tvp-power";
+	};
+
+	cam-power{
+		gpio-hog;
+		gpios = <3 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "cam-power";
+	};
+};
+
+&hscif1 {
+	pinctrl-0 = <&hscif1_pins>;
+	pinctrl-names = "default";
+
+	uart-has-rtscts;
+	status = "okay";
+};
+
+&i2c5 {
+	status = "okay";
+	clock-frequency = <400000>;
+
+	hdmi@39 {
+		compatible = "adi,adv7511w";
+		reg = <0x39>;
+		interrupt-parent = <&gpio0>;
+		interrupts = <13 IRQ_TYPE_LEVEL_LOW>;
+		clocks = <&cec_clock>;
+		clock-names = "cec";
+
+		adi,input-depth = <8>;
+		adi,input-colorspace = "rgb";
+		adi,input-clock = "1x";
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				adv7511_in: endpoint {
+					remote-endpoint = <&du_out_rgb>;
+				};
+			};
+
+			port@1 {
+				reg = <1>;
+				adv7511_out: endpoint {
+					remote-endpoint = <&hdmi_con_out>;
+				};
+			};
+		};
+	};
+
+	composite-in@5d {
+		compatible = "ti,tvp5150";
+		reg = <0x5d>;
+		remote = <&vin0>;
+
+		port {
+			tvp5150: endpoint {
+				bus-width = <8>;
+				remote-endpoint = <&vin0ep>;
+			};
+		};
+	};
+
+	ov5640@3c {
+		compatible = "ovti,ov5640";
+		reg = <0x3c>;
+		clocks = <&clk_ov5640>;
+		clock-names = "xclk";
+		AVDD-supply = <&reg_2p8v>;
+		DOVDD-supply = <&reg_2p8v>;
+		DVDD-supply = <&reg_1p8v>;
+		status = "okay";
+		remote = <&vin2>;
+
+		port {
+			ov5640: endpoint {
+				bus-type = <6>;
+				data-shift = <2>;
+				bus-width = <8>;
+				pclk-sample = <1>;
+				hsync-active = <0>;
+				vsync-active = <0>;
+				remote-endpoint = <&vin2ep>;
+			};
+		};
+	};
+
+	ov7725@21 {
+		compatible = "ovti,ov7725";
+		reg = <0x21>;
+		remote = <&vin2>;
+		clocks = <&clk_ov7725>;
+
+		/* mark OV7725 as disabled by default
+		 * to enable, run command below under U-boot command line
+		 * 	setenv vin2_camera 'ov7725'
+		 * Note: no need to update status here
+		 */
+		status = "disabled";
+
+		port {
+			ov7725: endpoint {
+				bus-type = <6>;
+				data-shift = <2>;
+				bus-width = <8>;
+				pclk-sample = <1>;
+				hsync-active = <0>;
+				vsync-active = <0>;
+				remote-endpoint = <&vin2ep>;
+			};
+		};
+	};
+};
+
+&pfc {
+	can1_pins: can1 {
+		groups = "can1_data_d";
+		function = "can1";
+	};
+
+	du_pins: du {
+		groups = "du_rgb888", "du_sync", "du_oddf", "du_clk_out_0";
+		function = "du";
+	};
+
+	hscif1_pins: hscif1 {
+		groups = "hscif1_data_c", "hscif1_ctrl_c";
+		function = "hscif1";
+	};
+
+	scif1_pins: scif1 {
+		groups = "scif1_data_d";
+		function = "scif1";
+	};
+
+	vin0_pins: vin0 {
+		groups = "vin0_data8", "vin0_clk";
+		function = "vin0";
+	};
+
+	vin2_pins: vin2 {
+		groups = "vin2_data8", "vin2_sync", "vin2_field", "vin2_clk";
+		function = "vin2";
+	};
+};
+
+&scif1 {
+	pinctrl-0 = <&scif1_pins>;
+	pinctrl-names = "default";
+
+	status = "okay";
+};
+
+&vin0 {
+	status = "okay";
+	pinctrl-0 = <&vin0_pins>;
+	pinctrl-names = "default";
+
+	port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		vin0ep: endpoint {
+			remote-endpoint = <&tvp5150>;
+			bus-width = <8>;
+		};
+	};
+};
+
+&vin2 {
+	status = "okay";
+	pinctrl-0 = <&vin2_pins>;
+	pinctrl-names = "default";
+
+	port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		vin2ep: endpoint {
+			remote-endpoint = <&ov5640>;
+			bus-width = <8>;
+		};
+	};
+};

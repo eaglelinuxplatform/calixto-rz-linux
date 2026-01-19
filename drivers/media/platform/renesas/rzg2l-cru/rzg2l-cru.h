@@ -1,0 +1,524 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
+/*
+ * Driver for Renesas RZ/G2L CRU
+ *
+ * Copyright (C) 2022 Renesas Electronics Corp.
+ */
+
+#ifndef __RZG2L_CRU__
+#define __RZG2L_CRU__
+
+#include <linux/irqreturn.h>
+#include <linux/interrupt.h>
+#include <linux/reset.h>
+
+#include <media/v4l2-async.h>
+#include <media/v4l2-ctrls.h>
+#include <media/v4l2-dev.h>
+#include <media/v4l2-device.h>
+#include <media/videobuf2-v4l2.h>
+
+enum rzg2l_cru_common_regs {
+	CRUnCTRL,	/* CRU Control */
+	CRUnIE,		/* CRU Interrupt Enable */
+	CRUnINTS,	/* CRU Interrupt Status */
+	CRUnRST,	/* CRU Reset */
+	AMnMB1ADDRL,	/* Bank 1 Address (Lower) for CRU Image Data */
+	AMnMB1ADDRH,	/* Bank 1 Address (Higher) for CRU Image Data */
+	AMnMB2ADDRL,    /* Bank 2 Address (Lower) for CRU Image Data */
+	AMnMB2ADDRH,    /* Bank 2 Address (Higher) for CRU Image Data */
+	AMnMB3ADDRL,    /* Bank 3 Address (Lower) for CRU Image Data */
+	AMnMB3ADDRH,    /* Bank 3 Address (Higher) for CRU Image Data */
+	AMnMB4ADDRL,    /* Bank 4 Address (Lower) for CRU Image Data */
+	AMnMB4ADDRH,    /* Bank 4 Address (Higher) for CRU Image Data */
+	AMnMB5ADDRL,    /* Bank 5 Address (Lower) for CRU Image Data */
+	AMnMB5ADDRH,    /* Bank 5 Address (Higher) for CRU Image Data */
+	AMnMB6ADDRL,    /* Bank 6 Address (Lower) for CRU Image Data */
+	AMnMB6ADDRH,    /* Bank 6 Address (Higher) for CRU Image Data */
+	AMnMB7ADDRL,    /* Bank 7 Address (Lower) for CRU Image Data */
+	AMnMB7ADDRH,    /* Bank 7 Address (Higher) for CRU Image Data */
+	AMnMB8ADDRL,    /* Bank 8 Address (Lower) for CRU Image Data */
+	AMnMB8ADDRH,    /* Bank 8 Address (Higher) for CRU Image Data */
+	AMnUVAOFL,	/* UV Data Address Offset (Lower) Register for CRU Image Data*/
+	AMnUVAOFH,	/* UV Data Address Offset (Higher) Register for CRU Image Data*/
+	AMnMBVALID,	/* Memory Bank Enable for CRU Image Data */
+	AMnMBS,		/* Memory Bank Status for CRU Image Data */
+	AMnAXIATTR,	/* AXI-VD Bus Master Transfer Setting Register */
+	AMnFIFO,	/* AXI-VD Master FIFO Setting Register */
+	AMnFIFOPNTR,	/* AXI Master FIFO Pointer for CRU Image Data */
+	AMnAXISTP,	/* AXI Master Transfer Stop for CRU Image Data */
+	AMnAXISTPACK,	/* AXI Master Transfer Stop Status for CRU Image Data */
+	AMnSDMB1ADDRL,	/* Memory Bank 1 Base Address Lower Register for CRU Statistics Data */
+	AMnSDMB1ADDRH,	/* Memory Bank 1 Base Address Higher Register for CRU Statistics Data */
+	AMnSDMB2ADDRL,	/* Memory Bank 2 Base Address Lower Register for CRU Statistics Data */
+	AMnSDMB2ADDRH,	/* Memory Bank 2 Base Address Higher Register for CRU Statistics Data */
+	AMnSDMB3ADDRL,	/* Memory Bank 3 Base Address Lower Register for CRU Statistics Data */
+	AMnSDMB3ADDRH,	/* Memory Bank 3 Base Address Higher Register for CRU Statistics Data */
+	AMnSDMB4ADDRL,	/* Memory Bank 4 Base Address Lower Register for CRU Statistics Data */
+	AMnSDMB4ADDRH,	/* Memory Bank 4 Base Address Higher Register for CRU Statistics Data */
+	AMnSDMB5ADDRL,	/* Memory Bank 5 Base Address Lower Register for CRU Statistics Data */
+	AMnSDMB5ADDRH,	/* Memory Bank 5 Base Address Higher Register for CRU Statistics Data */
+	AMnSDMB6ADDRL,	/* Memory Bank 6 Base Address Lower Register for CRU Statistics Data */
+	AMnSDMB6ADDRH,	/* Memory Bank 6 Base Address Higher Register for CRU Statistics Data */
+	AMnSDMB7ADDRL,	/* Memory Bank 7 Base Address Lower Register for CRU Statistics Data */
+	AMnSDMB7ADDRH,	/* Memory Bank 7 Base Address Higher Register for CRU Statistics Data */
+	AMnSDMB8ADDRL,	/* Memory Bank 8 Base Address Lower Register for CRU Statistics Data */
+	AMnSDMB8ADDRH,	/* Memory Bank 8 Base Address Higher Register for CRU Statistics Data */
+	AMnSDMBVALID,	/* Memory Bank Enable Register for CRU Image Data */
+	AMnSDMBS,	/* Memory Bank Status Register for CRU Image Data */
+	AMnSDAXIATTR,	/* AXI Master Transfer Constant Register for CRU Statistics data */
+	AMnSDFIFOPNTR,	/* AXI Master FIFO Pointer Register for CRU Statistics Data */
+	AMnSDAXISTP,	/* AXI Master Transfer Stop Register for CRU Image Data */
+	AMnSDAXISTPACK,	/* AXI Master Transfer Stop Status Register for CRU Image Data */
+	ICnEN,		/* CRU Image Processing Enable */
+	ICnREGC,	/* CRU Image Processing Register Setting Change Control Register */
+	ICnMC,		/* CRU Image Processing Main Control */
+	ICnLMXOF,	/* CRU Linear Matrix Offset register */
+	ICnLMXRC1,	/* CRU Linear Matrix R Coefficient 1 Register */
+	ICnLMXRC2,	/* CRU Linear Matrix R Coefficient 2 Register */
+	ICnLMXGC1,	/* CRU Linear Matrix G Coefficient 1 Register */
+	ICnLMXGC2,	/* CRU Linear Matrix G Coefficient 2 Register */
+	ICnLMXBC1,	/* CRU Linear Matrix B Coefficient 1 Register */
+	ICnLMXBC2,	/* CRU Linear Matrix B Coefficient 2 Register */
+	ICnSTIC1,	/* CRU Statistics Control 1 Register */
+	ICnSTIC2,	/* CRU Statistics Control 2 Register */
+	ICnPIFC,	/* CRU Parallel I/F Control Register */
+	ICnMS,		/* CRU Module Status */
+	ICnDMR,		/* CRU Data Output Mode */
+
+	CRU_REGS_END,
+};
+
+/* Number of HW buffers */
+#define RZG2L_CRU_HW_BUFFER_MAX		8
+#define RZG2L_CRU_HW_BUFFER_DEFAULT	3
+
+/* Address alignment mask for HW buffers */
+#define RZG2L_CRU_HW_BUFFER_MASK	0x1ff
+
+/* Maximum number of CSI2 virtual channels */
+#define RZG2L_CRU_CSI2_VCHANNEL		4
+
+#define RZG2L_CRU_MIN_INPUT_WIDTH	320
+#define RZG2L_CRU_MIN_INPUT_HEIGHT	240
+
+/*
+ * The base for the RZ/G2L CRU driver controls.
+ * We reserve 16 controls for this driver
+ * The last USER-class private control IDs is V4L2_CID_USER_ATMEL_ISC_BASE.
+ */
+
+#define V4L2_CID_USER_CRU_BASE	(V4L2_CID_USER_BASE + 0x10e0)
+
+/* CRU V4L2 private controls */
+enum rzg2l_cru_v4l2_priv_ctrls {
+	V4L2_CID_CRU_FRAME_SKIP = V4L2_CID_USER_CRU_BASE,
+	V4L2_CID_CRU_STATISTICS,
+	V4L2_CID_CRU_SD_BLKSIZE,
+	V4L2_CID_CRU_SD_STHPOS,
+	V4L2_CID_CRU_SD_STSADPOS,
+	V4L2_CID_CRU_LINEAR_MATRIX,
+	V4L2_CID_CRU_LINEAR_MATRIX_ROF,
+	V4L2_CID_CRU_LINEAR_MATRIX_GOF,
+	V4L2_CID_CRU_LINEAR_MATRIX_BOF,
+	V4L2_CID_CRU_LINEAR_MATRIX_RR,
+	V4L2_CID_CRU_LINEAR_MATRIX_RG,
+	V4L2_CID_CRU_LINEAR_MATRIX_RB,
+	V4L2_CID_CRU_LINEAR_MATRIX_GR,
+	V4L2_CID_CRU_LINEAR_MATRIX_GG,
+	V4L2_CID_CRU_LINEAR_MATRIX_GB,
+	V4L2_CID_CRU_LINEAR_MATRIX_BR,
+	V4L2_CID_CRU_LINEAR_MATRIX_BG,
+	V4L2_CID_CRU_LINEAR_MATRIX_BB,
+};
+
+static const struct v4l2_ctrl_ops rzg2l_cru_ctrl_ops;
+
+static const char * const cru_statistics_blksize_menu[] = {
+	"16x16",
+	"32x32",
+	"64x64",
+	"128x128",
+};
+
+static const struct v4l2_ctrl_config rzg2l_cru_ctrls[] = {
+	{
+		.id = V4L2_CID_CRU_FRAME_SKIP,
+		.type = V4L2_CTRL_TYPE_BOOLEAN,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Skipping Frames Enable/Disable",
+		.max = 1,
+		.min = 0,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_STATISTICS,
+		.type = V4L2_CTRL_TYPE_BOOLEAN,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Statistics Data Enable/Disable",
+		.max = 1,
+		.min = 0,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_SD_BLKSIZE,
+		.type = V4L2_CTRL_TYPE_MENU,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Statistics Data Unit Blocksize",
+		.max = 3,
+		.min = 0,
+		.def = 0,
+		.is_private = 1,
+		.qmenu = cru_statistics_blksize_menu,
+	}, {
+		.id = V4L2_CID_CRU_SD_STHPOS,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Statistics Horizontal Start Position",
+		.max = 376,
+		.min = 0,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_SD_STSADPOS,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Statistics Input Data Bit Position",
+		.max = 8,
+		.min = 0,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX,
+		.type = V4L2_CTRL_TYPE_BOOLEAN,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix Processing Enable/Disable",
+		.max = 1,
+		.min = 0,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_ROF,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix R offset",
+		.max = 127,
+		.min = -128,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_GOF,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix G offset",
+		.max = 127,
+		.min = -128,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_BOF,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix B offset",
+		.max = 127,
+		.min = -128,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_RR,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix RR coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_RG,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix RG coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_RB,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix RB coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_GR,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix GR coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_GG,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix GG coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_GB,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix GB coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_BR,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix BR coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_BG,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix BG coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	}, {
+		.id = V4L2_CID_CRU_LINEAR_MATRIX_BB,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.ops = &rzg2l_cru_ctrl_ops,
+		.name = "Linear Matrix BB coefficient ",
+		.max = 4095,
+		.min = -4096,
+		.step = 1,
+		.def = 0,
+		.is_private = 1,
+	},
+};
+
+/* Minimum skipping frame for camera sensors stability */
+#define CRU_FRAME_SKIP		3
+
+/**
+ * enum rzg2l_cru_dma_state - DMA states
+ * @RZG2L_CRU_DMA_STOPPED:   No operation in progress
+ * @RZG2L_CRU_DMA_STARTING:  Capture starting up
+ * @RZG2L_CRU_DMA_RUNNING:   Operation in progress have buffers
+ * @RZG2L_CRU_DMA_STOPPING:  Stopping operation
+ */
+enum rzg2l_cru_dma_state {
+	RZG2L_CRU_DMA_STOPPED = 0,
+	RZG2L_CRU_DMA_STARTING,
+	RZG2L_CRU_DMA_RUNNING,
+	RZG2L_CRU_DMA_STOPPING,
+};
+
+/**
+ * struct rzg2l_cru_parallel - Parallel video input endpoint descriptor
+ * @asd:        sub-device descriptor for async framework
+ * @subdev:     subdevice matched using async framework
+ * @mbus_type:  media bus type
+ * @mbus_flags: media bus configuration flags
+ * @source_pad: source pad of remote subdevice
+ * @sink_pad:   sink pad of remote subdevice
+ *
+ */
+struct rzg2l_cru_parallel {
+	struct v4l2_async_subdev asd;
+	struct v4l2_subdev *subdev;
+
+	enum v4l2_mbus_type mbus_type;
+	unsigned int mbus_flags;
+
+	unsigned int source_pad;
+	unsigned int sink_pad;
+};
+
+struct rzg2l_cru_csi {
+	struct v4l2_async_subdev *asd;
+	struct v4l2_subdev *subdev;
+	u32 channel;
+};
+
+struct rzg2l_cru_ip {
+	struct v4l2_subdev subdev;
+	struct media_pad pads[2];
+	struct v4l2_mbus_framefmt mf;
+	struct v4l2_async_notifier notifier;
+	struct v4l2_subdev *remote;
+};
+
+struct rzg2l_cru_info {
+	const u16 *regs;
+	unsigned int max_width;
+	unsigned int max_height;
+};
+
+/**
+ * struct rzg2l_cru_ip_format - CRU IP format
+ * @code: Media bus code
+ * @datatype: MIPI CSI2 data type
+ * @format: 4CC format identifier (V4L2_PIX_FMT_*)
+ * @icndmr: ICnDMR register value
+ * @bpp: bytes per pixel
+ * @yuv: Flag to indicate whether the format is YUV-based.
+ */
+struct rzg2l_cru_ip_format {
+	u32 code;
+	u32 datatype;
+	u32 format;
+	u32 icndmr;
+	enum v4l2_pixel_encoding fmt_types;
+	u8 bpp;
+};
+
+/**
+ * struct rzg2l_cru_dev - Renesas CRU device structure
+ * @dev:		(OF) device
+ * @base:		device I/O register space remapped to virtual memory
+ * @info:		info about CRU instance
+ *
+ * @presetn:		CRU_PRESETN reset line
+ * @aresetn:		CRU_ARESETN reset line
+ *
+ * @vclk:		CRU Main clock
+ *
+ * @vdev:		V4L2 video device associated with CRU
+ * @v4l2_dev:		V4L2 device
+ * @num_buf:		Holds the current number of buffers enabled
+ * @notifier:		V4L2 asynchronous subdevs notifier
+ *
+ * @ctrl_handler:	V4L2 control handler associated with CRU
+ *
+ * @ip:			Image processing subdev info
+ * @parallel:		parallel input subdevice descriptor
+ * @csi:		CSI info
+ * @mdev:		media device
+ * @mdev_lock:		protects the count, notifier and csi members
+ * @pad:		media pad for the video device entity
+ *
+ * @is_csi:		flag to mark the CRU as using a CSI-2 subdevice
+ *
+ * @lock:		protects @queue
+ * @queue:		vb2 buffers queue
+ * @scratch:		cpu address for scratch buffer
+ * @scratch_phys:	physical address of the scratch buffer
+ *
+ * @qlock:		protects @queue_buf, @buf_list, @sequence
+ *			@state
+ * @queue_buf:		Keeps track of buffers given to HW slot
+ * @buf_list:		list of queued buffers
+ * @sequence:		V4L2 buffers sequence number
+ * @state:		keeps track of operation state
+ *
+ * @format:		active V4L2 pixel format
+ */
+struct rzg2l_cru_dev {
+	struct device *dev;
+	void __iomem *base;
+	const struct rzg2l_cru_info *info;
+
+	struct reset_control *presetn;
+	struct reset_control *aresetn;
+
+	struct clk *vclk;
+
+	struct video_device vdev;
+	struct v4l2_device v4l2_dev;
+	u8 num_buf;
+
+	struct v4l2_async_notifier notifier;
+
+	struct v4l2_ctrl_handler ctrl_handler;
+
+	struct rzg2l_cru_parallel *parallel;
+	struct rzg2l_cru_ip ip;
+	struct rzg2l_cru_csi csi;
+	struct media_device mdev;
+	struct mutex mdev_lock;
+	struct media_pad pad;
+
+	bool is_csi;
+
+	struct mutex lock;
+	struct vb2_queue queue;
+	void *scratch;
+	dma_addr_t scratch_phys;
+
+	spinlock_t qlock;
+	struct vb2_v4l2_buffer *queue_buf[RZG2L_CRU_HW_BUFFER_MAX];
+	struct list_head buf_list;
+	unsigned int sequence;
+	enum rzg2l_cru_dma_state state;
+
+	struct v4l2_rect crop;
+	struct v4l2_rect compose;
+	struct v4l2_rect source;
+
+	struct v4l2_pix_format format;
+	bool is_frame_skip;
+
+	struct task_struct *retry_thread;
+
+	bool is_statistics;
+	int sd_blksize;
+	int sd_sthpos;
+	int sd_stsadpos;
+
+	bool is_linear_matrix_enable;
+	int linear_matrix_rgb_offset[3];
+	int linear_matrix_r[3];	/* RR, RG, RB */
+	int linear_matrix_g[3]; /* GR, GG, GB */
+	int linear_matrix_b[3]; /* BR, BG, BB */
+};
+
+int rzg2l_cru_start_image_processing(struct rzg2l_cru_dev *cru);
+void rzg2l_cru_stop_image_processing(struct rzg2l_cru_dev *cru);
+
+int rzg2l_cru_dma_register(struct rzg2l_cru_dev *cru);
+void rzg2l_cru_dma_unregister(struct rzg2l_cru_dev *cru);
+
+int rzg2l_cru_video_register(struct rzg2l_cru_dev *cru);
+void rzg2l_cru_video_unregister(struct rzg2l_cru_dev *cru);
+irqreturn_t rzg2l_cru_irq(int irq, void *data);
+
+const struct v4l2_format_info *rzg2l_cru_format_from_pixel(u32 format);
+
+int rzg2l_cru_ip_subdev_register(struct rzg2l_cru_dev *cru);
+void rzg2l_cru_ip_subdev_unregister(struct rzg2l_cru_dev *cru);
+struct v4l2_mbus_framefmt *rzg2l_cru_ip_get_src_fmt(struct rzg2l_cru_dev *cru);
+
+const struct rzg2l_cru_ip_format *rzg2l_cru_ip_code_to_fmt(unsigned int code);
+const struct rzg2l_cru_ip_format *rzg2l_cru_ip_format_to_fmt(u32 format);
+const struct rzg2l_cru_ip_format *rzg2l_cru_ip_index_to_fmt(u32 index);
+
+#endif

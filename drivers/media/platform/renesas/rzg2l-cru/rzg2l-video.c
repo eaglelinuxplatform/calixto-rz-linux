@@ -1,0 +1,1494 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * Driver for Renesas RZ/G2L CRU
+ *
+ * Copyright (C) 2022 Renesas Electronics Corp.
+ *
+ * Based on Renesas R-Car VIN
+ * Copyright (C) 2016 Renesas Electronics Corp.
+ * Copyright (C) 2011-2013 Renesas Solutions Corp.
+ * Copyright (C) 2013 Cogent Embedded, Inc., <source@cogentembedded.com>
+ * Copyright (C) 2008 Magnus Damm
+ */
+
+#include <linux/clk.h>
+#include <linux/delay.h>
+#include <linux/pm_runtime.h>
+
+#include <media/v4l2-ioctl.h>
+#include <media/videobuf2-dma-contig.h>
+
+#include "rzg2l-cru.h"
+#include "rzg2l-cru-regs.h"
+
+#define RZG2L_TIMEOUT_MS		100
+#define RZG2L_RETRIES			10
+
+#define RZG2L_CRU_DEFAULT_FORMAT	V4L2_PIX_FMT_UYVY
+#define RZG2L_CRU_DEFAULT_WIDTH		RZG2L_CRU_MIN_INPUT_WIDTH
+#define RZG2L_CRU_DEFAULT_HEIGHT	RZG2L_CRU_MIN_INPUT_HEIGHT
+#define RZG2L_CRU_DEFAULT_FIELD		V4L2_FIELD_NONE
+#define RZG2L_CRU_DEFAULT_COLORSPACE	V4L2_COLORSPACE_SRGB
+
+struct rzg2l_cru_buffer {
+	struct vb2_v4l2_buffer vb;
+	struct list_head list;
+};
+
+static int prev_slot;
+static int frame_skip;
+static u32 amnmbxaddrl[RZG2L_CRU_HW_BUFFER_MAX];
+static u32 amnmbxaddrh[RZG2L_CRU_HW_BUFFER_MAX];
+
+#define to_buf_list(vb2_buffer) \
+	(&container_of(vb2_buffer, struct rzg2l_cru_buffer, vb)->list)
+
+/* -----------------------------------------------------------------------------
+ * DMA operations
+ */
+static void rzg2l_cru_write(struct rzg2l_cru_dev *cru, u32 offset, u32 value)
+{
+	const u16 *regs = cru->info->regs;
+
+	iowrite32(value, cru->base + regs[offset]);
+}
+
+static u32 rzg2l_cru_read(struct rzg2l_cru_dev *cru, u32 offset)
+{
+	const u16 *regs = cru->info->regs;
+
+	return ioread32(cru->base + regs[offset]);
+}
+
+static void rzg2l_cru_set_mb(struct rzg2l_cru_dev *cru,
+			     u32 slot, dma_addr_t addr)
+{
+	rzg2l_cru_write(cru, AMnMBxADDRL(AMnMB1ADDRL, slot), lower_32_bits(addr));
+	rzg2l_cru_write(cru, AMnMBxADDRH(AMnMB1ADDRH, slot), upper_32_bits(addr));
+}
+
+static void rzg2l_cru_get_mb(struct rzg2l_cru_dev *cru,
+			     u32 slot, u32 *low, u32 *high)
+{
+	*low = rzg2l_cru_read(cru, AMnMBxADDRL(AMnMB1ADDRL, slot));
+	*high = rzg2l_cru_read(cru, AMnMBxADDRH(AMnMB1ADDRH, slot));
+}
+
+static void rzg2l_cru_linear_setting(struct rzg2l_cru_dev *cru)
+{
+	rzg2l_cru_write(cru, ICnLMXOF,
+			ICnLMXOF_ROF(cru->linear_matrix_rgb_offset[0]) |
+			ICnLMXOF_GOF(cru->linear_matrix_rgb_offset[1]) |
+			ICnLMXOF_BOF(cru->linear_matrix_rgb_offset[2]));
+
+	rzg2l_cru_write(cru, ICnLMXRC1,
+			ICnLMXRC1_RR(cru->linear_matrix_r[0]));
+	rzg2l_cru_write(cru, ICnLMXRC2,
+			ICnLMXRC2_RG(cru->linear_matrix_r[1]) |
+			ICnLMXRC2_RB(cru->linear_matrix_r[2]));
+
+	rzg2l_cru_write(cru, ICnLMXGC1,
+			ICnLMXGC1_GR(cru->linear_matrix_g[0]));
+	rzg2l_cru_write(cru, ICnLMXGC2,
+			ICnLMXGC2_GG(cru->linear_matrix_g[1]) |
+			ICnLMXGC2_GB(cru->linear_matrix_g[2]));
+
+	rzg2l_cru_write(cru, ICnLMXBC1,
+			ICnLMXBC1_BR(cru->linear_matrix_b[0]));
+	rzg2l_cru_write(cru, ICnLMXBC2,
+			ICnLMXBC2_BG(cru->linear_matrix_b[1]) |
+			ICnLMXBC2_BB(cru->linear_matrix_b[2]));
+}
+
+/* Need to hold qlock before calling */
+static void return_unused_buffers(struct rzg2l_cru_dev *cru,
+				  enum vb2_buffer_state state)
+{
+	struct rzg2l_cru_buffer *buf, *node;
+	unsigned long flags;
+	unsigned int i;
+
+	spin_lock_irqsave(&cru->qlock, flags);
+	for (i = 0; i < cru->num_buf; i++) {
+		if (cru->queue_buf[i]) {
+			vb2_buffer_done(&cru->queue_buf[i]->vb2_buf,
+					state);
+			cru->queue_buf[i] = NULL;
+		}
+	}
+
+	list_for_each_entry_safe(buf, node, &cru->buf_list, list) {
+		vb2_buffer_done(&buf->vb.vb2_buf, state);
+		list_del(&buf->list);
+	}
+	spin_unlock_irqrestore(&cru->qlock, flags);
+}
+
+static int rzg2l_cru_queue_setup(struct vb2_queue *vq, unsigned int *nbuffers,
+				 unsigned int *nplanes, unsigned int sizes[],
+				 struct device *alloc_devs[])
+{
+	struct rzg2l_cru_dev *cru = vb2_get_drv_priv(vq);
+
+	/* Make sure the image size is large enough. */
+	if (*nplanes)
+		return sizes[0] < cru->format.sizeimage ? -EINVAL : 0;
+
+	*nplanes = 1;
+	sizes[0] = cru->format.sizeimage;
+
+	return 0;
+};
+
+static int rzg2l_cru_buffer_prepare(struct vb2_buffer *vb)
+{
+	struct rzg2l_cru_dev *cru = vb2_get_drv_priv(vb->vb2_queue);
+	unsigned long size = cru->format.sizeimage;
+
+	if (vb2_plane_size(vb, 0) < size) {
+		dev_err(cru->dev, "buffer too small (%lu < %lu)\n",
+			vb2_plane_size(vb, 0), size);
+		return -EINVAL;
+	}
+
+	vb2_set_plane_payload(vb, 0, size);
+
+	return 0;
+}
+
+static void rzg2l_cru_buffer_queue(struct vb2_buffer *vb)
+{
+	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
+	struct rzg2l_cru_dev *cru = vb2_get_drv_priv(vb->vb2_queue);
+	unsigned long flags;
+
+	spin_lock_irqsave(&cru->qlock, flags);
+
+	list_add_tail(to_buf_list(vbuf), &cru->buf_list);
+
+	spin_unlock_irqrestore(&cru->qlock, flags);
+}
+
+static void rzg2l_cru_set_slot_addr(struct rzg2l_cru_dev *cru,
+				    int slot, dma_addr_t addr)
+{
+	const struct rzg2l_cru_ip_format *fmt;
+	int offsetx, offsety;
+	dma_addr_t offset;
+
+	fmt = rzg2l_cru_ip_format_to_fmt(cru->format.pixelformat);
+	/*
+	 * The address needs to be 512 bytes aligned. Driver should never accept
+	 * settings that do not satisfy this in the first place...
+	 */
+	offsetx = cru->compose.left * fmt->bpp;
+	offsety = cru->compose.top * cru->format.bytesperline;
+	offset = addr + offsetx + offsety;
+
+	if (WARN_ON((offsetx | offsety | offset) & RZG2L_CRU_HW_BUFFER_MASK))
+		return;
+
+	rzg2l_cru_set_mb(cru, slot, addr);
+
+	amnmbxaddrl[slot] = lower_32_bits(addr);
+	amnmbxaddrh[slot] = upper_32_bits(addr);
+
+	/* Statistic data memory address is located next to Image data area */
+	if (cru->is_statistics) {
+		offset = offset + cru->format.bytesperline * cru->format.height;
+
+		rzg2l_cru_write(cru, AMnSDMBxADDRL(AMnSDMB1ADDRL, slot),
+				lower_32_bits(offset));
+		rzg2l_cru_write(cru, AMnSDMBxADDRH(AMnSDMB1ADDRH, slot),
+				upper_32_bits(offset));
+	}
+}
+
+/*
+ * Moves a buffer from the queue to the HW slot. If no buffer is
+ * available use the scratch buffer. The scratch buffer is never
+ * returned to userspace, its only function is to enable the capture
+ * loop to keep running.
+ */
+static void rzg2l_cru_fill_hw_slot(struct rzg2l_cru_dev *cru, int slot)
+{
+	struct vb2_v4l2_buffer *vbuf;
+	struct rzg2l_cru_buffer *buf;
+	dma_addr_t phys_addr;
+
+	/* A already populated slot shall never be overwritten. */
+	if (WARN_ON(cru->queue_buf[slot]))
+		return;
+
+	dev_dbg(cru->dev, "Filling HW slot: %d\n", slot);
+
+	if (list_empty(&cru->buf_list)) {
+		cru->queue_buf[slot] = NULL;
+		phys_addr = cru->scratch_phys;
+	} else {
+		/* Keep track of buffer we give to HW */
+		buf = list_entry(cru->buf_list.next,
+				 struct rzg2l_cru_buffer, list);
+		vbuf = &buf->vb;
+		list_del_init(to_buf_list(vbuf));
+		cru->queue_buf[slot] = vbuf;
+
+		/* Setup DMA */
+		phys_addr = vb2_dma_contig_plane_dma_addr(&vbuf->vb2_buf, 0);
+	}
+
+	rzg2l_cru_set_slot_addr(cru, slot, phys_addr);
+}
+
+static void rzg2l_cru_initialize_axi(struct rzg2l_cru_dev *cru)
+{
+	unsigned int slot;
+	u32 amnaxiattr;
+
+	/*
+	 * Set image data memory banks.
+	 * Currently, we will use maximum address.
+	 */
+	rzg2l_cru_write(cru, AMnMBVALID, AMnMBVALID_MBVALID(cru->num_buf - 1));
+
+	/* Set Statistics data memory banks */
+	if (cru->is_statistics)
+		rzg2l_cru_write(cru, AMnSDMBVALID,
+				AMnSDMBVALID_SDMBVALID(cru->num_buf - 1));
+
+	if (cru->retry_thread) {
+		for (slot = 0; slot < cru->num_buf; slot++) {
+			rzg2l_cru_write(cru, AMnMBxADDRL(AMnMB1ADDRL, slot),
+					amnmbxaddrl[slot]);
+			rzg2l_cru_write(cru, AMnMBxADDRH(AMnMB1ADDRH, slot),
+					amnmbxaddrh[slot]);
+
+			if (cru->is_statistics) {
+				rzg2l_cru_write(cru, AMnSDMBxADDRL(AMnSDMB1ADDRL, slot),
+						amnmbxaddrl[slot] +
+						cru->format.bytesperline *
+						cru->format.height);
+				rzg2l_cru_write(cru, AMnSDMBxADDRH(AMnSDMB1ADDRH, slot),
+						amnmbxaddrh[slot]);
+			}
+		}
+	} else {
+		for (slot = 0; slot < cru->num_buf; slot++)
+			rzg2l_cru_fill_hw_slot(cru, slot);
+	}
+
+	/* Set AXI burst max length to recommended setting */
+	amnaxiattr = rzg2l_cru_read(cru, AMnAXIATTR) & ~AMnAXIATTR_AXILEN_MASK;
+	amnaxiattr |= AMnAXIATTR_AXILEN;
+	rzg2l_cru_write(cru, AMnAXIATTR, amnaxiattr);
+}
+static void rzg2l_cru_parallel_setup(struct rzg2l_cru_dev *cru,
+				     const struct rzg2l_cru_ip_format *ip_fmt)
+{
+	u32 icnpifc;
+
+	switch (cru->format.field) {
+	case V4L2_FIELD_INTERLACED:
+		/* Default to TB */
+		icnpifc = ICnPIFC_ITL_INTERLACED;
+		break;
+	case V4L2_FIELD_INTERLACED_TB:
+		icnpifc = ICnPIFC_ITL_INTERLACED_TB;
+		break;
+	case V4L2_FIELD_INTERLACED_BT:
+		icnpifc = ICnPIFC_ITL_INTERLACED_BT;
+		break;
+	case V4L2_FIELD_NONE:
+		icnpifc = ICnPIFC_ITL_PROGRESSIVE;
+		break;
+	default:
+		icnpifc = ICnPIFC_ITL_INTERLACED;
+		break;
+	}
+
+	/*
+	 * Input interface
+	 */
+	switch (ip_fmt->code) {
+	case MEDIA_BUS_FMT_UYVY8_2X8:
+		/* BT.656 8bit YCbCr422 or BT.601 8bit YCbCr422 */
+		if (cru->parallel->mbus_type == V4L2_MBUS_BT656)
+			icnpifc |= ICnPIFC_PINF_UYVY8_BT656;
+		else
+			icnpifc |= ICnPIFC_PINF_UYVY8;
+		break;
+	case MEDIA_BUS_FMT_UYVY10_2X10:
+		/* BT.656 10bit YCbCr422 or BT.601 10bit YCbCr422 */
+		if (cru->parallel->mbus_type == V4L2_MBUS_BT656)
+			icnpifc |= ICnPIFC_PINF_UYVY10_BT656;
+		else
+			icnpifc |= ICnPIFC_PINF_UYVY10;
+		break;
+	case MEDIA_BUS_FMT_YUYV8_1X16:
+		icnpifc |= ICnPIFC_PINF_YUYV16;
+		break;
+	case MEDIA_BUS_FMT_YVYU8_1X16:
+		icnpifc |= ICnPIFC_PINF_YVYU16;
+		break;
+	case MEDIA_BUS_FMT_VYUY8_2X8:
+		icnpifc |= ICnPIFC_PINF_VYUY8;
+		break;
+	case MEDIA_BUS_FMT_YUYV8_2X8:
+		icnpifc |= ICnPIFC_PINF_YUYV8;
+		break;
+	case MEDIA_BUS_FMT_YVYU8_2X8:
+		icnpifc |= ICnPIFC_PINF_YVYU8;
+		break;
+	case MEDIA_BUS_FMT_VYUY10_2X10:
+		icnpifc |= ICnPIFC_PINF_VYUY10;
+		break;
+	case MEDIA_BUS_FMT_YUYV10_2X10:
+		icnpifc |= ICnPIFC_PINF_YUYV10;
+		break;
+	case MEDIA_BUS_FMT_YVYU10_2X10:
+		icnpifc |= ICnPIFC_PINF_YVYU10;
+		break;
+	default:
+		break;
+	}
+
+	/* Hsync Signal Polarity Select */
+	if (cru->parallel->mbus_flags & V4L2_MBUS_HSYNC_ACTIVE_LOW)
+		icnpifc |= ICnPIFC_ENPOL_LOW;
+
+	/* Vsync Signal Polarity Select */
+	if (cru->parallel->mbus_flags & V4L2_MBUS_VSYNC_ACTIVE_LOW)
+		icnpifc |= ICnPIFC_VSPOL_LOW;
+
+	/* Set field and input data */
+	rzg2l_cru_write(cru, ICnPIFC, icnpifc);
+}
+
+static void rzg2l_cru_csi2_setup(struct rzg2l_cru_dev *cru,
+				 const struct rzg2l_cru_ip_format *ip_fmt)
+{
+	u32 icnmc = ip_fmt->datatype;
+
+	icnmc |= (rzg2l_cru_read(cru, ICnMC) & ~ICnMC_INF_MASK);
+
+	/* Set virtual channel CSI2 */
+	icnmc |= ICnMC_VCSEL(cru->csi.channel);
+
+	rzg2l_cru_write(cru, ICnMC, icnmc);
+}
+
+static int rzg2l_cru_initialize_image_conv(struct rzg2l_cru_dev *cru,
+					   struct v4l2_mbus_framefmt *ip_sd_fmt)
+{
+	const struct v4l2_format_info *src_finfo, *dst_finfo;
+	const struct rzg2l_cru_ip_format *cru_video_fmt;
+	const struct rzg2l_cru_ip_format *cru_ip_fmt;
+	u32 icnmc;
+
+	cru_ip_fmt = rzg2l_cru_ip_code_to_fmt(ip_sd_fmt->code);
+	if (cru->is_csi)
+		rzg2l_cru_csi2_setup(cru, cru_ip_fmt);
+	else
+		rzg2l_cru_parallel_setup(cru, cru_ip_fmt);
+
+	/* Output format */
+	cru_video_fmt = rzg2l_cru_ip_format_to_fmt(cru->format.pixelformat);
+	if (cru->format.pixelformat == V4L2_PIX_FMT_NV16)
+		rzg2l_cru_write(cru, AMnUVAOFL,
+				ALIGN(cru->format.width * cru->format.height, 0x200));
+	if (!cru_video_fmt) {
+		dev_err(cru->dev, "Invalid pixelformat (0x%x)\n",
+			cru->format.pixelformat);
+		return -EINVAL;
+	}
+	/*
+	 * CRU can perform:
+	 * - Colorspace coversion: YUV <=> RGB.
+	 * - Demosaicing from RAW data to RGB.
+	 * To output YUV color format from RAW data input, we must process
+	 * demosaicing and colorspace conversion.
+	 * Do bypass mode for the remained mode.
+	 */
+
+	icnmc = rzg2l_cru_read(cru, ICnMC);
+
+	src_finfo = v4l2_format_info(cru_ip_fmt->format);
+	dst_finfo = v4l2_format_info(cru->format.pixelformat);
+
+	if (src_finfo->pixel_enc == dst_finfo->pixel_enc)
+		rzg2l_cru_write(cru, ICnMC, icnmc | ICnMC_CSCTHR |
+				ICnMC_DEMTHR);
+	else if ((src_finfo->pixel_enc == V4L2_PIXEL_ENC_YUV &&
+		dst_finfo->pixel_enc == V4L2_PIXEL_ENC_RGB) ||
+		(src_finfo->pixel_enc == V4L2_PIXEL_ENC_RGB &&
+		dst_finfo->pixel_enc == V4L2_PIXEL_ENC_YUV))
+		rzg2l_cru_write(cru, ICnMC,
+				(icnmc | ICnMC_DEMTHR) & ~ICnMC_CSCTHR);
+	else if (src_finfo->pixel_enc == V4L2_PIXEL_ENC_BAYER &&
+		dst_finfo->pixel_enc == V4L2_PIXEL_ENC_RGB)
+		rzg2l_cru_write(cru, ICnMC, icnmc & ~ICnMC_DEMTHR);
+	else if (src_finfo->pixel_enc == V4L2_PIXEL_ENC_BAYER &&
+		dst_finfo->pixel_enc == V4L2_PIXEL_ENC_YUV)
+		rzg2l_cru_write(cru, ICnMC, icnmc &
+				 ~(ICnMC_CSCTHR | ICnMC_DEMTHR));
+	else {
+		dev_err(cru->dev, "Not support color space conversion for (0x%x)\n",
+			cru->format.pixelformat);
+		return -ENOEXEC;
+	}
+
+	icnmc = rzg2l_cru_read(cru, ICnMC);
+	if (!(icnmc & ICnMC_DEMTHR)) {
+		icnmc &= ~ICnMC_RAWSTTYP_MASK;
+
+		switch (cru_ip_fmt->code) {
+		case MEDIA_BUS_FMT_SRGGB8_1X8:
+		case MEDIA_BUS_FMT_SRGGB10_1X10:
+		case MEDIA_BUS_FMT_SRGGB12_1X12:
+		case MEDIA_BUS_FMT_SRGGB14_1X14:
+		case MEDIA_BUS_FMT_SRGGB16_1X16:
+			rzg2l_cru_write(cru, ICnMC, icnmc |
+					ICnMC_RAWSTTYP_RGRG);
+			break;
+		case MEDIA_BUS_FMT_SGRBG8_1X8:
+		case MEDIA_BUS_FMT_SGRBG10_1X10:
+		case MEDIA_BUS_FMT_SGRBG12_1X12:
+		case MEDIA_BUS_FMT_SGRBG14_1X14:
+		case MEDIA_BUS_FMT_SGRBG16_1X16:
+			rzg2l_cru_write(cru, ICnMC, icnmc |
+					ICnMC_RAWSTTYP_GRGR);
+			break;
+		case MEDIA_BUS_FMT_SGBRG8_1X8:
+		case MEDIA_BUS_FMT_SGBRG10_1X10:
+		case MEDIA_BUS_FMT_SGBRG12_1X12:
+		case MEDIA_BUS_FMT_SGBRG14_1X14:
+		case MEDIA_BUS_FMT_SGBRG16_1X16:
+			rzg2l_cru_write(cru, ICnMC, icnmc |
+					ICnMC_RAWSTTYP_GBGB);
+			break;
+		case MEDIA_BUS_FMT_SBGGR8_1X8:
+		case MEDIA_BUS_FMT_SBGGR10_1X10:
+		case MEDIA_BUS_FMT_SBGGR12_1X12:
+		case MEDIA_BUS_FMT_SBGGR14_1X14:
+		case MEDIA_BUS_FMT_SBGGR16_1X16:
+			rzg2l_cru_write(cru, ICnMC, icnmc |
+					ICnMC_RAWSTTYP_BGBG);
+			break;
+		default:
+			break;
+		}
+	}
+
+	/* Statistics Data can be enabled if input format is BAYER RAW */
+	if (cru->is_statistics) {
+		u32 icnstic1, icnstic2;
+		int tmp;
+
+		if (src_finfo->pixel_enc == V4L2_PIXEL_ENC_BAYER)
+			rzg2l_cru_write(cru, ICnMC,
+				rzg2l_cru_read(cru, ICnMC) & ~ICnMC_STITHR);
+		else
+			return -EINVAL;
+
+		/*
+		 * Validate condition about STHPOS and STUNIT based on formula:
+		 * ((HSIZE-STHPOS)>>(4+STUNIT)) * (VSIZE>>(4+STUNIT)) * 4 > 512
+		 * before setting control for Statistics Data
+		 */
+		tmp = (cru->format.height - cru->sd_sthpos);
+		tmp >>= (4 + cru->sd_blksize);
+		tmp *= (cru->format.width >> (4 + cru->sd_blksize)) * 4;
+
+		if (tmp > 512) {
+			icnstic1 = ICnSTIC1_STUNIT(cru->sd_blksize) |
+				   ICnSTIC1_STSADPOS(cru->sd_stsadpos);
+			icnstic2 = ICnSTIC2_STHPOS(cru->sd_sthpos);
+
+			rzg2l_cru_write(cru, ICnSTIC1, icnstic1);
+			rzg2l_cru_write(cru, ICnSTIC2, icnstic2);
+		} else {
+			dev_err(cru->dev, "Invalid STUNIT and STHPOS setting");
+			return -EINVAL;
+		}
+
+	} else {
+		rzg2l_cru_write(cru, ICnMC,
+				rzg2l_cru_read(cru, ICnMC) | ICnMC_STITHR);
+	}
+
+	/* Linear Matrix Processing support */
+	if (((src_finfo->pixel_enc == V4L2_PIXEL_ENC_RGB) ||
+	   (src_finfo->pixel_enc == V4L2_PIXEL_ENC_BAYER)) &&
+	     (cru->is_linear_matrix_enable)) {
+		rzg2l_cru_write(cru, ICnMC,
+				rzg2l_cru_read(cru, ICnMC) & (~ICnMC_LMXTHR));
+
+		rzg2l_cru_linear_setting(cru);
+		rzg2l_cru_write(cru, ICnREGC, ICnREGC_REFEN);
+	} else {
+		rzg2l_cru_write(cru, ICnMC,
+				rzg2l_cru_read(cru, ICnMC) | ICnMC_LMXTHR);
+		rzg2l_cru_write(cru, ICnREGC, 0);
+	}
+
+	/* Set output data format */
+	rzg2l_cru_write(cru, ICnDMR, cru_video_fmt->icndmr);
+
+	return 0;
+}
+
+void rzg2l_cru_stop_image_processing(struct rzg2l_cru_dev *cru)
+{
+	u32 amnfifopntr, amnfifopntr_w, amnfifopntr_r_y, amnfifopntr_r_uv;
+	unsigned int retries = 0;
+	unsigned long flags;
+	u32 icnms;
+
+	spin_lock_irqsave(&cru->qlock, flags);
+
+	/* Disable and clear the interrupt */
+	rzg2l_cru_write(cru, CRUnIE, 0);
+	rzg2l_cru_write(cru, CRUnINTS, 0x001F0F0F);
+
+	/* Stop the operation of image conversion */
+	rzg2l_cru_write(cru, ICnEN, 0);
+
+	/* Wait for streaming to stop */
+	while ((rzg2l_cru_read(cru, ICnMS) & ICnMS_IA) && retries++ < RZG2L_RETRIES) {
+		spin_unlock_irqrestore(&cru->qlock, flags);
+		msleep(RZG2L_TIMEOUT_MS);
+		spin_lock_irqsave(&cru->qlock, flags);
+	}
+
+	icnms = rzg2l_cru_read(cru, ICnMS) & ICnMS_IA;
+	if (icnms)
+		dev_err(cru->dev, "Failed stop HW, something is seriously broken\n");
+
+	cru->state = RZG2L_CRU_DMA_STOPPED;
+
+	/* Wait until the FIFO becomes empty */
+	for (retries = 5; retries > 0; retries--) {
+		amnfifopntr = rzg2l_cru_read(cru, AMnFIFOPNTR);
+
+		if (cru->format.pixelformat == V4L2_PIX_FMT_NV16) {
+			amnfifopntr_w =
+				(amnfifopntr & AMnFIFOPNTR_FIFOWPNTR) >> 1;
+			amnfifopntr_r_uv =
+				(amnfifopntr & AMnFIFOPNTR_FIFORPNTR_UV) >> 25;
+			if (amnfifopntr_w == amnfifopntr_r_uv)
+				break;
+		} else {
+			amnfifopntr_w = amnfifopntr & AMnFIFOPNTR_FIFOWPNTR;
+			amnfifopntr_r_y =
+				(amnfifopntr & AMnFIFOPNTR_FIFORPNTR_Y) >> 16;
+			if (amnfifopntr_w == amnfifopntr_r_y)
+				break;
+		}
+
+		usleep_range(10, 20);
+	}
+
+	/* Notify that FIFO is not empty here */
+	if (!retries)
+		dev_err(cru->dev, "Failed to empty FIFO\n");
+
+	/* Stop AXI bus */
+	rzg2l_cru_write(cru, AMnAXISTP, AMnAXISTP_AXI_STOP);
+
+	/* Wait until the AXI bus stop */
+	for (retries = 5; retries > 0; retries--) {
+		if (rzg2l_cru_read(cru, AMnAXISTPACK) &
+			AMnAXISTPACK_AXI_STOP_ACK)
+			break;
+
+		usleep_range(10, 20);
+	}
+
+	/* Notify that AXI bus can not stop here */
+	if (!retries)
+		dev_err(cru->dev, "Failed to stop AXI bus\n");
+
+	/* Cancel the AXI bus stop request */
+	rzg2l_cru_write(cru, AMnAXISTP, 0);
+
+	/* Stop AXI bus for Statistic Data */
+	if (cru->is_statistics) {
+		u32 amnsdfifopntr, amnsdfifopntr_w, amnsdfifopntr_r;
+
+		/* Wait until the FIFO becomes empty */
+		for (retries = 5; retries > 0; retries--) {
+			amnsdfifopntr = rzg2l_cru_read(cru, AMnSDFIFOPNTR);
+			amnsdfifopntr_w = amnfifopntr & AMnSDFIFOPNTR_SDFIFOWPNTR;
+			amnsdfifopntr_r = (amnfifopntr & AMnSDFIFOPNTR_SDFIFORPNTR) >> 16;
+
+			if (amnsdfifopntr_w == amnsdfifopntr_r)
+				break;
+
+			udelay(10);
+		}
+
+		/* Notify that FIFO is not empty here */
+		if (!retries)
+			dev_err(cru->dev, "Failed to empty FIFO for Statistics\n");
+
+		/* Stop AXI bus */
+		rzg2l_cru_write(cru, AMnSDAXISTP, AMnSDAXISTP_SDAXI_STOP);
+
+		/* Wait until the AXI bus stop */
+		for (retries = 5; retries > 0; retries--) {
+			if (rzg2l_cru_read(cru, AMnSDAXISTPACK) &
+					   AMnSDAXISTPACK_SDAXI_STOP_ACK)
+				break;
+
+			udelay(10);
+		};
+
+		/* Notify that AXI bus can not stop here */
+		if (!retries)
+			dev_err(cru->dev, "Failed to stop AXI bus for Statistics\n");
+
+		/* Cancel the AXI bus stop request */
+		rzg2l_cru_write(cru, AMnSDAXISTP, 0);
+	}
+
+	/* Reset the CRU (AXI-master) */
+	reset_control_assert(cru->aresetn);
+
+	/* Resets the image processing module */
+	rzg2l_cru_write(cru, CRUnRST, 0);
+
+	spin_unlock_irqrestore(&cru->qlock, flags);
+}
+
+int rzg2l_cru_start_image_processing(struct rzg2l_cru_dev *cru)
+{
+	struct v4l2_mbus_framefmt *fmt = rzg2l_cru_ip_get_src_fmt(cru);
+	unsigned long flags;
+	int ret;
+
+	spin_lock_irqsave(&cru->qlock, flags);
+
+	/* Select a video input */
+	if (cru->is_csi)
+		rzg2l_cru_write(cru, CRUnCTRL, CRUnCTRL_VINSEL(0));
+	else
+		rzg2l_cru_write(cru, CRUnCTRL, CRUnCTRL_VINSEL(1));
+
+	/* Cancel the software reset for image processing block */
+	rzg2l_cru_write(cru, CRUnRST, CRUnRST_VRESETN);
+
+	/* Disable and clear the interrupt before using */
+	rzg2l_cru_write(cru, CRUnIE, 0);
+	rzg2l_cru_write(cru, CRUnINTS, 0x001f000f);
+
+	/* Initialize the AXI master */
+	rzg2l_cru_initialize_axi(cru);
+
+	/* Initialize image convert */
+	ret = rzg2l_cru_initialize_image_conv(cru, fmt);
+	if (ret) {
+		spin_unlock_irqrestore(&cru->qlock, flags);
+		return ret;
+	}
+
+	/* Enable interrupt */
+	rzg2l_cru_write(cru, CRUnIE, CRUnIE_EFE);
+
+	/* Enable image processing reception */
+	rzg2l_cru_write(cru, ICnEN, ICnEN_ICEN);
+
+	spin_unlock_irqrestore(&cru->qlock, flags);
+
+	return 0;
+}
+
+static int rzg2l_cru_set_stream(struct rzg2l_cru_dev *cru, int on)
+{
+	struct media_pipeline *pipe;
+	struct v4l2_subdev *sd;
+	struct media_pad *pad;
+	int ret, i;
+	unsigned long flags;
+
+	pad = media_entity_remote_pad(&cru->pad);
+	if (!pad)
+		return -EPIPE;
+
+	sd = media_entity_to_v4l2_subdev(pad->entity);
+
+	if (!on) {
+		int stream_off_ret = 0;
+
+		ret = v4l2_subdev_call(sd, video, s_stream, 0);
+		if (ret)
+			stream_off_ret = ret;
+
+		ret = v4l2_subdev_call(sd, video, post_streamoff);
+		if (ret == -ENOIOCTLCMD)
+			ret = 0;
+		if (ret && !stream_off_ret)
+			stream_off_ret = ret;
+
+		media_pipeline_stop(&cru->vdev.entity);
+
+		return stream_off_ret;
+	}
+
+	pipe = sd->entity.pipe ? : &cru->vdev.pipe;
+	ret = media_pipeline_start(&cru->vdev.entity, pipe);
+	if (ret)
+		return ret;
+
+	ret = v4l2_subdev_call(sd, video, pre_streamon, 0);
+	if (ret && ret != -ENOIOCTLCMD)
+		goto pipe_line_stop;
+
+	spin_lock_irqsave(&cru->qlock, flags);
+
+	for (i = 0; i < cru->num_buf; i++)
+		rzg2l_cru_get_mb(cru, i, &amnmbxaddrl[i],
+				 &amnmbxaddrh[i]);
+
+	spin_unlock_irqrestore(&cru->qlock, flags);
+
+	ret = v4l2_subdev_call(sd, video, s_stream, 1);
+	if (ret && ret != -ENOIOCTLCMD)
+		goto err_s_stream;
+
+	return 0;
+
+err_s_stream:
+	v4l2_subdev_call(sd, video, post_streamoff);
+
+pipe_line_stop:
+	media_pipeline_stop(&cru->vdev.entity);
+
+	return ret;
+}
+
+static void rzg2l_cru_stop_streaming(struct rzg2l_cru_dev *cru)
+{
+	cru->state = RZG2L_CRU_DMA_STOPPING;
+
+	if (cru->retry_thread)
+		kthread_stop(cru->retry_thread);
+
+	rzg2l_cru_set_stream(cru, 0);
+}
+
+static int retry_streaming_func(void *data)
+{
+	struct rzg2l_cru_dev *cru = (struct rzg2l_cru_dev *) data;
+	struct v4l2_subdev *sd;
+	struct media_pad *pad;
+	int ret;
+	int retry = 0;
+	int i;
+
+	pad = media_entity_remote_pad(&cru->pad);
+	if (!pad)
+		return -EPIPE;
+	sd = media_entity_to_v4l2_subdev(pad->entity);
+
+	while (retry < 5) {
+		for (i = 0; i < 10; i++) {
+			if (cru->state == RZG2L_CRU_DMA_RUNNING)
+				goto retry_done;
+
+			msleep(50);
+		}
+		/* Stop CRU reception */
+		rzg2l_cru_write(cru, ICnEN, 0);
+		v4l2_subdev_call(sd, video, post_streamoff);
+		rzg2l_cru_stop_image_processing(cru);
+		pm_runtime_put(cru->dev);
+
+		msleep(20);
+
+		cru->state = RZG2L_CRU_DMA_RUNNING;
+
+		pm_runtime_get_sync(cru->dev);
+
+		/* Release reset state */
+		reset_control_deassert(cru->presetn);
+		reset_control_deassert(cru->aresetn);
+
+		msleep(20);
+
+		ret = rzg2l_cru_start_image_processing(cru);
+		if (ret)
+			goto retry_done;
+
+		ret = v4l2_subdev_call(sd, video, s_stream, 1);
+		if (ret == -ENOIOCTLCMD)
+			ret = 0;
+		if (ret)
+			goto retry_done;
+
+		retry++;
+
+		dev_info(cru->dev, "CRU retry init: %d times", retry);
+	}
+
+	dev_err(cru->dev, "Please retry due to no input signal after %d retries",
+		retry);
+
+retry_done:
+	cru->retry_thread = NULL;
+
+	return 0;
+}
+
+irqreturn_t rzg2l_cru_irq(int irq, void *data)
+{
+	struct rzg2l_cru_dev *cru = data;
+	unsigned int handled = 0;
+	unsigned long flags;
+	u32 irq_status;
+	u32 amnmbs;
+	int slot;
+
+	spin_lock_irqsave(&cru->qlock, flags);
+
+	irq_status = rzg2l_cru_read(cru, CRUnINTS);
+	if (!irq_status)
+		goto done;
+
+	handled = 1;
+
+	rzg2l_cru_write(cru, CRUnINTS, rzg2l_cru_read(cru, CRUnINTS));
+
+	/* Nothing to do if capture status is 'RZG2L_CRU_DMA_STOPPED' */
+	if (cru->state == RZG2L_CRU_DMA_STOPPED) {
+		dev_dbg(cru->dev, "IRQ while state stopped\n");
+		goto done;
+	}
+
+	/* Increase stop retries if capture status is 'RZG2L_CRU_DMA_STOPPING' */
+	if (cru->state == RZG2L_CRU_DMA_STOPPING) {
+		if (irq_status & CRUnINTS_SFS)
+			dev_dbg(cru->dev, "IRQ while state stopping\n");
+		goto done;
+	}
+
+	/* Support realtime update for Linear Matrix setting */
+	if (!(rzg2l_cru_read(cru, ICnMC) & ICnMC_LMXTHR)) {
+		rzg2l_cru_linear_setting(cru);
+		rzg2l_cru_write(cru, ICnREGC, ICnREGC_REFEN);
+	}
+
+	/* Prepare for capture and update state */
+	amnmbs = rzg2l_cru_read(cru, AMnMBS);
+	slot = amnmbs & AMnMBS_MBSTS;
+
+	/*
+	 * AMnMBS.MBSTS indicates the destination of Memory Bank (MB).
+	 * Recalculate to get the current transfer complete MB.
+	 */
+	if (slot == 0)
+		slot = cru->num_buf - 1;
+	else
+		slot--;
+
+	/*
+	 * To hand buffers back in a known order to userspace start
+	 * to capture first from slot 0.
+	 */
+	if (cru->state == RZG2L_CRU_DMA_STARTING) {
+		if (cru->is_frame_skip) {
+			if (frame_skip < CRU_FRAME_SKIP) {
+				dev_dbg(cru->dev, "Skipping %d frame\n", frame_skip);
+				frame_skip++;
+				goto done;
+			}
+		} else {
+			if (slot != 0) {
+				dev_dbg(cru->dev, "Starting sync slot: %d\n", slot);
+				goto done;
+			}
+		}
+
+		dev_dbg(cru->dev, "Capture start synced!\n");
+		cru->state = RZG2L_CRU_DMA_RUNNING;
+	}
+
+	if (slot != prev_slot) {
+		/* Update value of previous memory bank slot */
+		prev_slot = slot;
+	} else {
+		/*
+		 * AXI-Bus congestion maybe occurred.
+		 * Set auto recovery mode to clear all FIFOs
+		 * and resume transmission.
+		 */
+		rzg2l_cru_write(cru, AMnFIFO, 0);
+
+		dev_dbg(cru->dev, "Dropping frame %u\n",
+			cru->sequence);
+		goto done;
+	}
+
+	/* Capture frame */
+	if (cru->queue_buf[slot]) {
+		cru->queue_buf[slot]->field = cru->format.field;
+		cru->queue_buf[slot]->sequence = cru->sequence;
+		cru->queue_buf[slot]->vb2_buf.timestamp = ktime_get_ns();
+		vb2_buffer_done(&cru->queue_buf[slot]->vb2_buf,
+				VB2_BUF_STATE_DONE);
+		cru->queue_buf[slot] = NULL;
+	} else {
+		/* Scratch buffer was used, dropping frame. */
+		dev_dbg(cru->dev, "Dropping frame %u\n", cru->sequence);
+	}
+
+	cru->sequence++;
+
+	/* Prepare for next frame */
+	rzg2l_cru_fill_hw_slot(cru, slot);
+
+done:
+	spin_unlock_irqrestore(&cru->qlock, flags);
+
+	return IRQ_RETVAL(handled);
+}
+
+static int rzg2l_cru_start_streaming_vq(struct vb2_queue *vq, unsigned int count)
+{
+	struct rzg2l_cru_dev *cru = vb2_get_drv_priv(vq);
+	int ret;
+
+	ret = pm_runtime_resume_and_get(cru->dev);
+	if (ret)
+		return ret;
+
+	ret = clk_prepare_enable(cru->vclk);
+	if (ret)
+		goto err_pm_put;
+
+	/* Release reset state */
+	ret = reset_control_deassert(cru->aresetn);
+	if (ret) {
+		dev_err(cru->dev, "failed to deassert aresetn\n");
+		goto err_vclk_disable;
+	}
+
+	ret = reset_control_deassert(cru->presetn);
+	if (ret) {
+		reset_control_assert(cru->aresetn);
+		dev_err(cru->dev, "failed to deassert presetn\n");
+		goto assert_aresetn;
+	}
+
+	frame_skip = 0;
+
+	/* Allocate scratch buffer. */
+	cru->scratch = dma_alloc_coherent(cru->dev, cru->format.sizeimage,
+					  &cru->scratch_phys, GFP_KERNEL);
+	if (!cru->scratch) {
+		return_unused_buffers(cru, VB2_BUF_STATE_QUEUED);
+		dev_err(cru->dev, "Failed to allocate scratch buffer\n");
+		ret = -ENOMEM;
+		goto assert_presetn;
+	}
+
+	cru->sequence = 0;
+
+	ret = rzg2l_cru_set_stream(cru, 1);
+	if (ret) {
+		return_unused_buffers(cru, VB2_BUF_STATE_QUEUED);
+		goto out;
+	}
+
+	cru->state = RZG2L_CRU_DMA_STARTING;
+
+	/* Initialize value of previous memory bank slot before streaming */
+	prev_slot = -1;
+
+	/*
+	 * Workaround to start a thread to restart CRU processing flow
+	 * if there is no input to CRU while using MIPI CSI2.
+	 */
+
+	cru->retry_thread = kthread_create(retry_streaming_func, cru,
+					   "CRU retry thread");
+	if (IS_ERR(cru->retry_thread)) {
+		ret = PTR_ERR(cru->retry_thread);
+		cru->retry_thread = NULL;
+		goto out;
+	}
+
+	wake_up_process(cru->retry_thread);
+
+	dev_dbg(cru->dev, "Starting to capture\n");
+	return 0;
+
+out:
+	if (ret)
+		dma_free_coherent(cru->dev, cru->format.sizeimage, cru->scratch,
+				  cru->scratch_phys);
+assert_presetn:
+	reset_control_assert(cru->presetn);
+
+assert_aresetn:
+	reset_control_assert(cru->aresetn);
+
+err_vclk_disable:
+	clk_disable_unprepare(cru->vclk);
+
+err_pm_put:
+	pm_runtime_put_sync(cru->dev);
+
+	return ret;
+}
+
+static void rzg2l_cru_stop_streaming_vq(struct vb2_queue *vq)
+{
+	struct rzg2l_cru_dev *cru = vb2_get_drv_priv(vq);
+
+	rzg2l_cru_stop_streaming(cru);
+
+	/* Free scratch buffer */
+	dma_free_coherent(cru->dev, cru->format.sizeimage,
+			  cru->scratch, cru->scratch_phys);
+
+	return_unused_buffers(cru, VB2_BUF_STATE_ERROR);
+
+	reset_control_assert(cru->presetn);
+	clk_disable_unprepare(cru->vclk);
+	pm_runtime_put_sync(cru->dev);
+}
+
+static const struct vb2_ops rzg2l_cru_qops = {
+	.queue_setup		= rzg2l_cru_queue_setup,
+	.buf_prepare		= rzg2l_cru_buffer_prepare,
+	.buf_queue		= rzg2l_cru_buffer_queue,
+	.start_streaming	= rzg2l_cru_start_streaming_vq,
+	.stop_streaming		= rzg2l_cru_stop_streaming_vq,
+	.wait_prepare		= vb2_ops_wait_prepare,
+	.wait_finish		= vb2_ops_wait_finish,
+};
+
+void rzg2l_cru_dma_unregister(struct rzg2l_cru_dev *cru)
+{
+	mutex_destroy(&cru->lock);
+
+	v4l2_device_unregister(&cru->v4l2_dev);
+	vb2_queue_release(&cru->queue);
+}
+
+int rzg2l_cru_dma_register(struct rzg2l_cru_dev *cru)
+{
+	struct vb2_queue *q = &cru->queue;
+	unsigned int i;
+	int ret;
+
+	/* Initialize the top-level structure */
+	ret = v4l2_device_register(cru->dev, &cru->v4l2_dev);
+	if (ret)
+		return ret;
+
+	mutex_init(&cru->lock);
+	INIT_LIST_HEAD(&cru->buf_list);
+
+	spin_lock_init(&cru->qlock);
+
+	cru->state = RZG2L_CRU_DMA_STOPPED;
+
+	for (i = 0; i < RZG2L_CRU_HW_BUFFER_MAX; i++)
+		cru->queue_buf[i] = NULL;
+
+	/* buffer queue */
+	q->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	q->io_modes = VB2_MMAP | VB2_DMABUF;
+	q->lock = &cru->lock;
+	q->drv_priv = cru;
+	q->buf_struct_size = sizeof(struct rzg2l_cru_buffer);
+	q->ops = &rzg2l_cru_qops;
+	q->mem_ops = &vb2_dma_contig_memops;
+	q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
+	q->min_buffers_needed = 4;
+	q->dev = cru->dev;
+
+	ret = vb2_queue_init(q);
+	if (ret < 0) {
+		dev_err(cru->dev, "failed to initialize VB2 queue\n");
+		goto error;
+	}
+
+	return 0;
+
+error:
+	mutex_destroy(&cru->lock);
+	v4l2_device_unregister(&cru->v4l2_dev);
+	return ret;
+}
+
+/* -----------------------------------------------------------------------------
+ * V4L2 stuff
+ */
+
+static void rzg2l_cru_format_align(struct rzg2l_cru_dev *cru,
+				   struct v4l2_pix_format *pix)
+{
+	const struct rzg2l_cru_ip_format *fmt;
+	const struct rzg2l_cru_info *info = cru->info;
+
+	fmt = rzg2l_cru_ip_format_to_fmt(pix->pixelformat);
+
+	if (!fmt) {
+		pix->pixelformat = RZG2L_CRU_DEFAULT_FORMAT;
+		fmt = rzg2l_cru_ip_format_to_fmt(pix->pixelformat);
+	}
+
+	switch (pix->field) {
+	case V4L2_FIELD_TOP:
+	case V4L2_FIELD_BOTTOM:
+	case V4L2_FIELD_NONE:
+	case V4L2_FIELD_INTERLACED_TB:
+	case V4L2_FIELD_INTERLACED_BT:
+	case V4L2_FIELD_INTERLACED:
+		break;
+	case V4L2_FIELD_ALTERNATE:
+		/*
+		 * Driver does not (yet) support outputting ALTERNATE to a
+		 * userspace. It does support outputting INTERLACED so use
+		 * the CRU hardware to combine the two fields.
+		 */
+		pix->field = V4L2_FIELD_INTERLACED;
+		pix->height *= 2;
+		break;
+	default:
+		pix->field = RZG2L_CRU_DEFAULT_FIELD;
+		break;
+	}
+
+	/* Limit to CRU capabilities */
+	v4l_bound_align_image(&pix->width, 320, info->max_width, 1,
+			      &pix->height, 240, info->max_height, 2, 0);
+
+	pix->bytesperline = pix->width * fmt->bpp;
+	if (pix->pixelformat == V4L2_PIX_FMT_NV16)
+		pix->sizeimage = pix->bytesperline * pix->height * 2;
+	else
+		pix->sizeimage = pix->bytesperline * pix->height;
+
+	if (cru->is_statistics)
+		pix->sizeimage *= 2;
+
+	dev_dbg(cru->dev, "Format %ux%u bpl: %u size: %u\n",
+		pix->width, pix->height, pix->bytesperline, pix->sizeimage);
+}
+
+static void rzg2l_cru_try_format(struct rzg2l_cru_dev *cru,
+				 struct v4l2_pix_format *pix)
+{
+	/*
+	 * The V4L2 specification clearly documents the colorspace fields
+	 * as being set by drivers for capture devices. Using the values
+	 * supplied by userspace thus wouldn't comply with the API. Until
+	 * the API is updated force fixed values.
+	 */
+	pix->colorspace = RZG2L_CRU_DEFAULT_COLORSPACE;
+	pix->xfer_func = V4L2_MAP_XFER_FUNC_DEFAULT(pix->colorspace);
+	pix->ycbcr_enc = V4L2_MAP_YCBCR_ENC_DEFAULT(pix->colorspace);
+	pix->quantization = V4L2_MAP_QUANTIZATION_DEFAULT(true, pix->colorspace,
+							  pix->ycbcr_enc);
+
+	rzg2l_cru_format_align(cru, pix);
+}
+
+static int rzg2l_cru_querycap(struct file *file, void *priv,
+			      struct v4l2_capability *cap)
+{
+	strscpy(cap->driver, KBUILD_MODNAME, sizeof(cap->driver));
+	strscpy(cap->card, "RZG2L_CRU", sizeof(cap->card));
+
+	return 0;
+}
+
+static int rzg2l_cru_try_fmt_vid_cap(struct file *file, void *priv,
+				     struct v4l2_format *f)
+{
+	struct rzg2l_cru_dev *cru = video_drvdata(file);
+
+	rzg2l_cru_try_format(cru, &f->fmt.pix);
+
+	return 0;
+}
+
+static int rzg2l_cru_s_fmt_vid_cap(struct file *file, void *priv,
+				   struct v4l2_format *f)
+{
+	struct rzg2l_cru_dev *cru = video_drvdata(file);
+
+	if (vb2_is_busy(&cru->queue))
+		return -EBUSY;
+
+	rzg2l_cru_try_format(cru, &f->fmt.pix);
+
+	cru->format = f->fmt.pix;
+
+	return 0;
+}
+
+static int rzg2l_cru_g_fmt_vid_cap(struct file *file, void *priv,
+				   struct v4l2_format *f)
+{
+	struct rzg2l_cru_dev *cru = video_drvdata(file);
+
+	f->fmt.pix = cru->format;
+
+	return 0;
+}
+
+static int rzg2l_cru_enum_fmt_vid_cap(struct file *file, void *priv,
+				      struct v4l2_fmtdesc *f)
+{
+	const struct rzg2l_cru_ip_format *fmt;
+
+	fmt = rzg2l_cru_ip_index_to_fmt(f->index);
+	if (!fmt)
+		return -EINVAL;
+
+	f->pixelformat = fmt->format;
+
+	return 0;
+}
+
+static const struct v4l2_ioctl_ops rzg2l_cru_ioctl_ops = {
+	.vidioc_querycap		= rzg2l_cru_querycap,
+	.vidioc_try_fmt_vid_cap		= rzg2l_cru_try_fmt_vid_cap,
+	.vidioc_g_fmt_vid_cap		= rzg2l_cru_g_fmt_vid_cap,
+	.vidioc_s_fmt_vid_cap		= rzg2l_cru_s_fmt_vid_cap,
+	.vidioc_enum_fmt_vid_cap	= rzg2l_cru_enum_fmt_vid_cap,
+
+	.vidioc_reqbufs			= vb2_ioctl_reqbufs,
+	.vidioc_create_bufs		= vb2_ioctl_create_bufs,
+	.vidioc_querybuf		= vb2_ioctl_querybuf,
+	.vidioc_qbuf			= vb2_ioctl_qbuf,
+	.vidioc_dqbuf			= vb2_ioctl_dqbuf,
+	.vidioc_expbuf			= vb2_ioctl_expbuf,
+	.vidioc_prepare_buf		= vb2_ioctl_prepare_buf,
+	.vidioc_streamon		= vb2_ioctl_streamon,
+	.vidioc_streamoff		= vb2_ioctl_streamoff,
+};
+
+/* -----------------------------------------------------------------------------
+ * Media controller file operations
+ */
+
+static int rzg2l_cru_open(struct file *file)
+{
+	struct rzg2l_cru_dev *cru = video_drvdata(file);
+	int ret;
+
+	ret = mutex_lock_interruptible(&cru->lock);
+	if (ret)
+		return ret;
+
+	file->private_data = cru;
+	ret = v4l2_fh_open(file);
+	if (ret)
+		goto err_unlock;
+
+	mutex_unlock(&cru->lock);
+
+	return 0;
+
+err_unlock:
+	mutex_unlock(&cru->lock);
+
+	return ret;
+}
+
+static int rzg2l_cru_release(struct file *file)
+{
+	struct rzg2l_cru_dev *cru = video_drvdata(file);
+	int ret;
+
+	mutex_lock(&cru->lock);
+
+	/* the release helper will cleanup any on-going streaming. */
+	ret = _vb2_fop_release(file, NULL);
+
+	mutex_unlock(&cru->lock);
+
+	return ret;
+}
+
+static const struct v4l2_file_operations rzg2l_cru_fops = {
+	.owner		= THIS_MODULE,
+	.unlocked_ioctl	= video_ioctl2,
+	.open		= rzg2l_cru_open,
+	.release	= rzg2l_cru_release,
+	.poll		= vb2_fop_poll,
+	.mmap		= vb2_fop_mmap,
+	.read		= vb2_fop_read,
+};
+
+/* -----------------------------------------------------------------------------
+ * Media entity operations
+ */
+
+static int rzg2l_cru_video_link_validate(struct media_link *link)
+{
+	struct v4l2_subdev_format fmt = {
+		.which = V4L2_SUBDEV_FORMAT_ACTIVE,
+	};
+	const struct rzg2l_cru_ip_format *video_fmt;
+	struct v4l2_subdev *subdev;
+	struct rzg2l_cru_dev *cru;
+	int ret;
+
+	subdev = media_entity_to_v4l2_subdev(link->source->entity);
+	fmt.pad = link->source->index;
+	ret = v4l2_subdev_call(subdev, pad, get_fmt, NULL, &fmt);
+	if (ret < 0)
+		return ret == -ENOIOCTLCMD ? -EINVAL : ret;
+
+	cru = container_of(media_entity_to_video_device(link->sink->entity),
+			   struct rzg2l_cru_dev, vdev);
+	video_fmt = rzg2l_cru_ip_format_to_fmt(cru->format.pixelformat);
+
+	if (!cru->is_csi) {
+		switch (fmt.format.code) {
+		case MEDIA_BUS_FMT_UYVY8_2X8:
+		case MEDIA_BUS_FMT_VYUY8_2X8:
+		case MEDIA_BUS_FMT_YUYV8_2X8:
+		case MEDIA_BUS_FMT_YVYU8_2X8:
+		case MEDIA_BUS_FMT_UYVY10_2X10:
+		case MEDIA_BUS_FMT_VYUY10_2X10:
+		case MEDIA_BUS_FMT_YUYV10_2X10:
+		case MEDIA_BUS_FMT_YVYU10_2X10:
+		case MEDIA_BUS_FMT_YUYV8_1X16:
+		case MEDIA_BUS_FMT_YVYU8_1X16:
+			video_fmt = rzg2l_cru_ip_code_to_fmt(fmt.format.code);
+			break;
+		default:
+			return -EPIPE;
+		}
+
+		switch (fmt.format.field) {
+		case V4L2_FIELD_NONE:
+		case V4L2_FIELD_INTERLACED_TB:
+		case V4L2_FIELD_INTERLACED_BT:
+		case V4L2_FIELD_INTERLACED:
+			/* Supported natively */
+			break;
+		case V4L2_FIELD_ALTERNATE:
+			fmt.format.height *= 2;
+			break;
+		default:
+			return -EPIPE;
+		}
+	} else {
+		switch (fmt.format.code) {
+		case MEDIA_BUS_FMT_UYVY8_2X8:
+		case MEDIA_BUS_FMT_UYVY10_2X10:
+		case MEDIA_BUS_FMT_UYVY8_1X16:
+		case MEDIA_BUS_FMT_YUYV8_1X16:
+		case MEDIA_BUS_FMT_Y8_1X8:
+		case MEDIA_BUS_FMT_RGB444_1X12:
+		case MEDIA_BUS_FMT_RGB565_2X8_LE:
+		case MEDIA_BUS_FMT_RGB666_1X18:
+		case MEDIA_BUS_FMT_RGB888_1X24:
+		case MEDIA_BUS_FMT_SBGGR8_1X8:
+		case MEDIA_BUS_FMT_SGBRG8_1X8:
+		case MEDIA_BUS_FMT_SGRBG8_1X8:
+		case MEDIA_BUS_FMT_SRGGB8_1X8:
+		case MEDIA_BUS_FMT_SRGGB10_1X10:
+		case MEDIA_BUS_FMT_SGRBG10_1X10:
+		case MEDIA_BUS_FMT_SGBRG10_1X10:
+		case MEDIA_BUS_FMT_SBGGR10_1X10:
+		case MEDIA_BUS_FMT_SRGGB12_1X12:
+		case MEDIA_BUS_FMT_SGRBG12_1X12:
+		case MEDIA_BUS_FMT_SGBRG12_1X12:
+		case MEDIA_BUS_FMT_SBGGR12_1X12:
+		case MEDIA_BUS_FMT_SRGGB14_1X14:
+		case MEDIA_BUS_FMT_SGRBG14_1X14:
+		case MEDIA_BUS_FMT_SGBRG14_1X14:
+		case MEDIA_BUS_FMT_SBGGR14_1X14:
+		case MEDIA_BUS_FMT_SRGGB16_1X16:
+		case MEDIA_BUS_FMT_SGRBG16_1X16:
+		case MEDIA_BUS_FMT_SGBRG16_1X16:
+		case MEDIA_BUS_FMT_SBGGR16_1X16:
+			video_fmt = rzg2l_cru_ip_code_to_fmt(fmt.format.code);
+			break;
+		default:
+			return -EPIPE;
+		}
+	}
+
+	if (fmt.format.width != cru->format.width ||
+	    fmt.format.height != cru->format.height ||
+	    fmt.format.field != cru->format.field ||
+	    video_fmt->code != fmt.format.code)
+		return -EPIPE;
+
+	return 0;
+}
+
+static const struct media_entity_operations rzg2l_cru_video_media_ops = {
+	.link_validate = rzg2l_cru_video_link_validate,
+};
+
+static void rzg2l_cru_v4l2_init(struct rzg2l_cru_dev *cru)
+{
+	struct video_device *vdev = &cru->vdev;
+
+	vdev->v4l2_dev = &cru->v4l2_dev;
+	vdev->queue = &cru->queue;
+	snprintf(vdev->name, sizeof(vdev->name), "CRU output");
+	vdev->release = video_device_release_empty;
+	vdev->lock = &cru->lock;
+	vdev->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
+	vdev->device_caps |= V4L2_CAP_IO_MC;
+	vdev->entity.ops = &rzg2l_cru_video_media_ops;
+	vdev->fops = &rzg2l_cru_fops;
+	vdev->ioctl_ops = &rzg2l_cru_ioctl_ops;
+
+	/* Set a default format */
+	cru->format.pixelformat	= RZG2L_CRU_DEFAULT_FORMAT;
+	cru->format.width = RZG2L_CRU_DEFAULT_WIDTH;
+	cru->format.height = RZG2L_CRU_DEFAULT_HEIGHT;
+	cru->format.field = RZG2L_CRU_DEFAULT_FIELD;
+	cru->format.colorspace = RZG2L_CRU_DEFAULT_COLORSPACE;
+	rzg2l_cru_format_align(cru, &cru->format);
+}
+
+void rzg2l_cru_video_unregister(struct rzg2l_cru_dev *cru)
+{
+	media_device_unregister(&cru->mdev);
+	video_unregister_device(&cru->vdev);
+}
+
+int rzg2l_cru_video_register(struct rzg2l_cru_dev *cru)
+{
+	struct video_device *vdev = &cru->vdev;
+	int ret;
+
+	if (video_is_registered(&cru->vdev)) {
+		struct media_entity *entity;
+
+		entity = &cru->vdev.entity;
+		if (!entity->graph_obj.mdev)
+			entity->graph_obj.mdev = &cru->mdev;
+		return 0;
+	}
+
+	rzg2l_cru_v4l2_init(cru);
+	video_set_drvdata(vdev, cru);
+	ret = video_register_device(vdev, VFL_TYPE_VIDEO, -1);
+	if (ret) {
+		dev_err(cru->dev, "Failed to register video device\n");
+		return ret;
+	}
+
+	ret = media_device_register(&cru->mdev);
+	if (ret) {
+		video_unregister_device(&cru->vdev);
+		return ret;
+	}
+
+	return 0;
+}
